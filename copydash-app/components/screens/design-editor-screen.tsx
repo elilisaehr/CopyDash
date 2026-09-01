@@ -94,6 +94,7 @@ export function DesignEditorScreen({
   const paneRef = React.useRef<HTMLDivElement>(null);
   const wrapRef = React.useRef<HTMLDivElement>(null);
   const pageRefs = React.useRef<Record<number, HTMLDivElement | null>>({});
+  const fieldRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
 
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [saveStatus, setSaveStatus] = React.useState<"idle" | "saving" | "saved">("idle");
@@ -239,6 +240,7 @@ export function DesignEditorScreen({
       kind: b.fontSize >= 30 ? "heading" : b.fontSize >= 22 ? "subhead" : b.fontSize >= 17 ? "lead" : "body",
       color: b.color,
       textAlign: b.textAlign,
+      wrap: true,
     }));
     // Deriving pages/blocks synchronously from already-fetched figmaDesign
     // state — no external I/O to defer past a microtask, unlike the async
@@ -271,6 +273,13 @@ export function DesignEditorScreen({
       wrap.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
     }
   }, [activeId, pdfStatus, pages]);
+
+  // Scroll the matching field card into view when a block is clicked
+  // directly on the design (the reverse of the effect above).
+  React.useEffect(() => {
+    if (!activeId) return;
+    fieldRefs.current[activeId]?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [activeId]);
 
   const onChange = React.useCallback(
     (id: string, text: string) => {
@@ -675,6 +684,9 @@ export function DesignEditorScreen({
               return (
                 <div
                   key={b.id}
+                  ref={(el) => {
+                    fieldRefs.current[b.id] = el;
+                  }}
                   onClick={() => setActiveId(b.id)}
                   onBlur={() => persistBlock(b.id)}
                   style={{ padding: 16, borderRadius: 10, border: `1px solid ${active ? "#c4b4ff" : "#f0f0f0"}`, background: active ? "#fdfcff" : "#fafafa", transition: "all 0.15s", cursor: "text" }}

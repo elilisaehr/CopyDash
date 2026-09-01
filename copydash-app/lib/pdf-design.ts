@@ -60,6 +60,12 @@ export interface DesignBlock {
   color?: string;
   weight?: number;
   textAlign?: "left" | "center" | "right" | "justify";
+  /** When true, EditableBlock wraps text within the block's original width
+   * (growing downward for extra lines) instead of growing sideways on a
+   * single line. Figma text nodes are commonly multi-line paragraphs, so
+   * the Figma import path sets this; the PDF path's per-line-grouped
+   * blocks keep the original single-line behavior. */
+  wrap?: boolean;
 }
 
 // ── Small helpers (ported verbatim) ──────────────────────────────────────

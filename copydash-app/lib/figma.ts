@@ -117,6 +117,14 @@ export async function importFigmaFrame(
   const box = frame.absoluteBoundingBox;
   if (!box) return { error: "Ce nœud Figma n'a pas de dimensions — sélectionnez un cadre (frame)." };
 
+  // `scale` here only controls the PIXEL DENSITY of the rendered PNG (like
+  // requesting an @2x asset for crispness on retina screens) — it must NOT
+  // also inflate the logical/CSS coordinate space, or the editor's own zoom
+  // (which multiplies these same numbers by its own scale, 40%–180%) ends
+  // up double-scaled. Block geometry and the frame's width/height below are
+  // therefore kept in Figma's NATURAL (1x) units; the browser displays the
+  // higher-resolution image at that natural size via width/height attributes,
+  // which is exactly how high-DPI images are meant to be used on the web.
   const imagesRes = await fetch(
     `${FIGMA_API}/images/${fileKey}?ids=${encodeURIComponent(nodeId)}&format=png&scale=${scale}`,
     { headers },
@@ -135,16 +143,16 @@ export async function importFigmaFrame(
       const b = n.absoluteBoundingBox!;
       return {
         id: n.id,
-        x: (b.x - box.x) * scale,
-        y: (b.y - box.y) * scale,
-        w: b.width * scale,
-        h: b.height * scale,
+        x: b.x - box.x,
+        y: b.y - box.y,
+        w: b.width,
+        h: b.height,
         text: n.characters || "",
-        fontSize: (n.style?.fontSize || 14) * scale,
+        fontSize: n.style?.fontSize || 14,
         fontWeight: n.style?.fontWeight || 400,
         color: colorToCss(n.fills),
         textAlign: ALIGN_MAP[n.style?.textAlignHorizontal || "LEFT"] || "left",
-        lineHeight: n.style?.lineHeightPx ? n.style.lineHeightPx * scale : null,
+        lineHeight: n.style?.lineHeightPx || null,
       };
     });
 
@@ -154,8 +162,8 @@ export async function importFigmaFrame(
     fileName,
     frameName: frame.name,
     imageUrl,
-    width: Math.round(box.width * scale),
-    height: Math.round(box.height * scale),
+    width: Math.round(box.width),
+    height: Math.round(box.height),
     blocks,
   };
 }
