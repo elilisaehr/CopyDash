@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/auth";
 import { PmSettingsScreen, PM_NOTIF_DEFAULTS, type PmNotifPrefs } from "@/components/screens/pm-settings-screen";
-import type { TeamInvitation, BrandingSettings } from "@/lib/supabase/types";
+import type { TeamInvitation, BrandingSettings, FigmaConnection } from "@/lib/supabase/types";
 
 export default async function PmSettingsPage() {
   const supabase = await createClient();
@@ -13,10 +13,11 @@ export default async function PmSettingsPage() {
   // non-PMs) before this page ever renders, so `user` is guaranteed here.
   const profile = await ensureProfile(supabase, user!);
 
-  const [{ data: notifRow }, { data: team }, { data: branding }] = await Promise.all([
+  const [{ data: notifRow }, { data: team }, { data: branding }, { data: figmaConnection }] = await Promise.all([
     supabase.from("notification_prefs").select("prefs").eq("user_id", profile.id).maybeSingle(),
     supabase.from("team_invitations").select("*").eq("pm_id", profile.id).order("invited_at", { ascending: false }),
     supabase.from("branding_settings").select("*").eq("pm_id", profile.id).maybeSingle(),
+    supabase.from("figma_connections").select("*").eq("pm_id", profile.id).maybeSingle(),
   ]);
 
   const notifPrefs: PmNotifPrefs = { ...PM_NOTIF_DEFAULTS, ...(notifRow?.prefs || {}) };
@@ -27,6 +28,7 @@ export default async function PmSettingsPage() {
       notifPrefs={notifPrefs}
       teamMembers={(team as TeamInvitation[]) || []}
       branding={branding as BrandingSettings | null}
+      figmaConnection={figmaConnection as FigmaConnection | null}
     />
   );
 }

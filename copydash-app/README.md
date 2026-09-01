@@ -6,7 +6,7 @@ CopyDash helps agencies collect website content from clients: a PM creates a pro
 
 ## Stack
 
-- **Next.js 16** (App Router, TypeScript, Turbopack) — note the renamed `middleware.ts` → `proxy.ts` convention and async `params`/`searchParams`, both breaking changes from earlier Next.js versions.
+- **Next.js 16** (App Router, TypeScript, Turbopack) — note async `params`/`searchParams`, a breaking change from earlier Next.js versions. Next.js 16 also introduced a renamed `proxy.ts` convention for what was `middleware.ts`; this app deliberately still uses `middleware.ts` (fully supported, not removed) to avoid platform-support lag for the brand-new name on some hosts.
 - **Supabase** — Postgres (schema + Row Level Security), Auth (email/password), Storage (uploaded PDFs).
 - **Tailwind CSS v4** for base resets; most UI is deliberately ported as inline-styled components (matching the original design prototype's exact pixel/hex values) rather than utility classes.
 - **pdf.js** for real, client-side PDF text extraction and page rendering (no server-side PDF processing).
@@ -33,8 +33,9 @@ This app was built in a sandboxed environment with no network access to Supabase
 2. Run `supabase/migrations/0001_schema.sql` (tables).
 3. Run `supabase/migrations/0002_rls.sql` (Row Level Security policies + the `pdfs` Storage bucket).
 4. Run `supabase/migrations/0003_activity_triggers.sql` (auto-populates the PM dashboard's activity feed).
+5. Run `supabase/migrations/0004_figma_import.sql` (Figma import feature — safe to run even if you don't plan to use it).
 
-(If you have the Supabase CLI linked to this project instead, `supabase db push` will apply all three in order.)
+(If you have the Supabase CLI linked to this project instead, `supabase db push` will apply all four in order.)
 
 ### 4. Configure environment variables
 
@@ -60,10 +61,11 @@ Visit `http://localhost:3000`, click **Sign up**, and create a Project Manager a
 
 | Feature | Status |
 |---|---|
-| Auth, roles, route protection | Real (Supabase Auth + RLS + `proxy.ts`) |
+| Auth, roles, route protection | Real (Supabase Auth + RLS + `middleware.ts`) |
 | Projects, clients, pages, fields, comments | Real (Postgres, RLS-scoped per PM/client) |
 | PDF text extraction | Real (client-side pdf.js) |
 | PDF design rendering + in-place text editing | Real (pdf.js render-to-canvas + geometry-based text-block detection, `lib/pdf-design.ts`) |
+| Figma design import + in-place text editing | Real (Figma REST API via a per-PM Personal Access Token, `lib/figma.ts` — gives exact text position/content/style directly, no geometry detection needed) |
 | File storage | Real (Supabase Storage, `pdfs` bucket) |
 | SEO scoring | Real — a deterministic, rule-based score (`components/features/seo.tsx`), not an AI call |
 | AI writing suggestions / "fill from PDF" | **Mocked** (`lib/ai-mock.ts`) — same UI/UX and JSON contract a real LLM call would use |
@@ -94,4 +96,4 @@ lib/
 supabase/migrations/                  SQL schema + RLS (run manually, see Setup above)
 ```
 
-Proxy note: this is Next.js 16, where `middleware.ts` was renamed to `proxy.ts` and only runs on the Node runtime. See `proxy.ts` at the repo root for session refresh + role-based route protection.
+See `middleware.ts` at the repo root for session refresh + role-based route protection.

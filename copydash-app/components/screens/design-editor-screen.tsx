@@ -24,7 +24,7 @@ import { mockGenerateFieldSuggestions } from "@/lib/ai-mock";
 import { getPdfjs } from "@/lib/pdf";
 import { createClient } from "@/lib/supabase/client";
 import { renderPdfDesign, type DesignBlock, type RenderedPage, type BlockKind } from "@/lib/pdf-design";
-import type { Project, Page, UserRole } from "@/lib/supabase/types";
+import type { Project, Page, UserRole, FigmaDesign } from "@/lib/supabase/types";
 
 const KIND_LABEL: Record<BlockKind, string> = {
   heading: "Heading",
@@ -77,11 +77,17 @@ export function DesignEditorScreen({
   }, []);
 
   const [editsLoaded, setEditsLoaded] = React.useState(false);
-  const [pdfPath, setPdfPath] = React.useState<string | null>(page.pdf_storage_path);
+  const [pdfPath, setPdfPath] = React.useState<string | null>(page.design_source === "figma" ? null : page.pdf_storage_path);
   const [pdfBuffer, setPdfBuffer] = React.useState<ArrayBuffer | null>(null);
   const [pdfStatus, setPdfStatus] = React.useState<PdfStatus>("loading");
   const [pages, setPages] = React.useState<RenderedPage[]>([]);
   const [blocks, setBlocks] = React.useState<DesignBlock[]>([]);
+  // Figma-sourced design: base (unscaled) data fetched once; `pages`/`blocks`
+  // above are re-derived from this at the live zoom `scale` below, the same
+  // way the PDF pipeline re-renders at a new scale — see the effect further
+  // down. Figma gives exact text position/content/style directly from its
+  // API, so no pdf.js geometry-detection is needed for this source.
+  const [figmaDesign, setFigmaDesign] = React.useState<FigmaDesign | null>(null);
 
   const [scale, setScale] = React.useState(1);
   const [autoFit, setAutoFit] = React.useState(true);
@@ -190,6 +196,67 @@ export function DesignEditorScreen({
       cancelled = true;
     };
   }, [pdfBuffer, scale, handleNaturalWidth]);
+
+  // ── Figma path: fetch the design fetched at import/resync time ─────────
+  React.useEffect(() => {
+    if (page.design_source !== "figma") return;
+    let cancelled = false;
+    (async () => {
+      setPdfStatus("loading");
+      const supabase = createClient();
+      const { data } = await supabase.from("figma_designs").select("*").eq("page_id", page.id).maybeSingle();
+      if (cancelled) return;
+      if (!data) {
+        setPdfStatus("error");
+        return;
+      }
+      setFigmaDesign(data as unknown as FigmaDesign);
+      setPdfStatus("ready");
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [page.id, page.design_source]);
+
+  // Re-derive the renderer-agnostic `pages`/`blocks` state from the Figma
+  // design whenever it loads or the zoom scale changes — mirrors the PDF
+  // effect above, just without needing to re-render anything (Figma's
+  // rendered PNG + exact block geometry is already fetched at import time).
+  React.useEffect(() => {
+    if (!figmaDesign) return;
+    const s = scale;
+    const scaledBlocks: DesignBlock[] = figmaDesign.blocks.map((b) => ({
+      id: b.id,
+      pageIndex: 0,
+      x: b.x * s,
+      top: b.y * s,
+      w: b.w * s,
+      h: b.h * s,
+      fontH: b.fontSize * s,
+      text: b.text,
+      bg: [255, 255, 255],
+      dark: false,
+      kind: b.fontSize >= 30 ? "heading" : b.fontSize >= 22 ? "subhead" : b.fontSize >= 17 ? "lead" : "body",
+      color: b.color,
+      textAlign: b.textAlign,
+    }));
+    // Deriving pages/blocks synchronously from already-fetched figmaDesign
+    // state — no external I/O to defer past a microtask, unlike the async
+    // fetch effects above.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPages([
+      {
+        pageIndex: 0,
+        w: Math.round(figmaDesign.width * s),
+        h: Math.round(figmaDesign.height * s),
+        url: figmaDesign.image_url,
+        blocks: scaledBlocks,
+      },
+    ]);
+    setBlocks(scaledBlocks);
+    handleNaturalWidth(figmaDesign.width);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [figmaDesign, scale]);
 
   // Scroll the active block into view when picked from the side panel.
   React.useEffect(() => {
@@ -333,7 +400,26 @@ export function DesignEditorScreen({
     setScale((s) => Math.max(0.4, Math.min(1.8, +(s + d).toFixed(2))));
   };
 
-  const showDesign = !!pdfPath;
+  const showDesign = !!pdfPath || !!figmaDesign;
+
+  const handleResyncFigma = async () => {
+    if (!figmaDesign) return;
+    setPdfStatus("loading");
+    const fakeUrl = `https://www.figma.com/design/${figmaDesign.file_key}/resync?node-id=${figmaDesign.node_id.replace(":", "-")}`;
+    const res = await fetch("/api/figma/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pageId: page.id, figmaUrl: fakeUrl }),
+    });
+    if (!res.ok) {
+      setPdfStatus("error");
+      return;
+    }
+    const supabase = createClient();
+    const { data } = await supabase.from("figma_designs").select("*").eq("page_id", page.id).maybeSingle();
+    setFigmaDesign(data as unknown as FigmaDesign);
+    setPdfStatus("ready");
+  };
   const commentUser = { id: user.id, name: user.name, role: user.role };
 
   return (
@@ -389,10 +475,18 @@ export function DesignEditorScreen({
           {fields.length > 0 && <SEOToggle open={seoOpen} onToggle={() => setSeoOpen((o) => !o)} score={seo.pct} />}
           {role === "pm" && (
             <>
-              <input ref={fileRef} type="file" accept=".pdf,application/pdf" style={{ display: "none" }} onChange={(e) => handleReplace(e.target.files?.[0] || null)} />
-              <Btn variant="outline" size="sm" icon="upload" onClick={() => fileRef.current?.click()}>
-                Replace
-              </Btn>
+              {figmaDesign ? (
+                <Btn variant="outline" size="sm" icon="link" onClick={handleResyncFigma} disabled={pdfStatus === "loading"}>
+                  Re-sync from Figma
+                </Btn>
+              ) : (
+                <>
+                  <input ref={fileRef} type="file" accept=".pdf,application/pdf" style={{ display: "none" }} onChange={(e) => handleReplace(e.target.files?.[0] || null)} />
+                  <Btn variant="outline" size="sm" icon="upload" onClick={() => fileRef.current?.click()}>
+                    Replace
+                  </Btn>
+                </>
+              )}
               <Btn variant="outline" size="sm" icon="download" onClick={() => setExportOpen(true)} disabled={!blocks.length}>
                 Export
               </Btn>

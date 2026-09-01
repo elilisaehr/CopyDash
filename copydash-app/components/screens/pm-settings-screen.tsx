@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 import { Btn, Card, FieldInput, SelectInput, Avatar, Badge, PageHeader, Toggle } from "@/components/ui/primitives";
 import { createClient } from "@/lib/supabase/client";
-import type { Profile, TeamInvitation, BrandingSettings, TeamRole } from "@/lib/supabase/types";
+import type { Profile, TeamInvitation, BrandingSettings, TeamRole, FigmaConnection } from "@/lib/supabase/types";
 
 // SectionTitle isn't in the shared primitives — ported here as a tiny local helper.
 function SectionTitle({ children }: { children: React.ReactNode }) {
@@ -31,6 +31,7 @@ const TABS = [
   { id: "notifications", label: "Notifications", icon: "bell" },
   { id: "team", label: "Team", icon: "users" },
   { id: "branding", label: "Branding", icon: "zap" },
+  { id: "integrations", label: "Integrations", icon: "link" },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -85,11 +86,13 @@ export function PmSettingsScreen({
   notifPrefs,
   teamMembers,
   branding,
+  figmaConnection,
 }: {
   profile: Profile;
   notifPrefs: PmNotifPrefs;
   teamMembers: TeamInvitation[];
   branding: BrandingSettings | null;
+  figmaConnection: FigmaConnection | null;
 }) {
   const [tab, setTab] = React.useState<TabId>("account");
 
@@ -114,6 +117,7 @@ export function PmSettingsScreen({
             {tab === "notifications" && <NotificationsTab userId={profile.id} initial={notifPrefs} />}
             {tab === "team" && <TeamTab pmId={profile.id} initial={teamMembers} />}
             {tab === "branding" && <BrandingTab pmId={profile.id} initial={branding} />}
+            {tab === "integrations" && <IntegrationsTab initial={figmaConnection} />}
           </div>
         </div>
       </div>
@@ -441,6 +445,92 @@ function BrandingTab({ pmId, initial }: { pmId: string; initial: BrandingSetting
             {saved && <span style={{ fontSize: 13, color: "#15803d", fontFamily: "var(--font-body)" }}>Branding saved.</span>}
           </div>
         </div>
+      </Card>
+    </div>
+  );
+}
+
+// ── Integrations (Figma) ─────────────────────────────────────────
+function IntegrationsTab({ initial }: { initial: FigmaConnection | null }) {
+  const router = useRouter();
+  const [connection, setConnection] = React.useState(initial);
+  const [token, setToken] = React.useState("");
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const handleConnect = async () => {
+    if (!token.trim()) return;
+    setLoading(true);
+    setError(null);
+    const res = await fetch("/api/figma/connect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: token.trim() }),
+    });
+    const data = await res.json();
+    setLoading(false);
+    if (!res.ok) {
+      setError(data.error || "Connexion impossible.");
+      return;
+    }
+    setConnection({ pm_id: "", access_token: "", figma_user_name: data.name, figma_user_email: data.email, connected_at: new Date().toISOString() });
+    setToken("");
+    router.refresh();
+  };
+
+  const handleDisconnect = async () => {
+    setLoading(true);
+    await fetch("/api/figma/connect", { method: "DELETE" });
+    setLoading(false);
+    setConnection(null);
+    router.refresh();
+  };
+
+  return (
+    <div>
+      <SectionTitle>Figma</SectionTitle>
+      <Card>
+        {connection ? (
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: "#f0fdf4", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <Icon name="check-circle" size={18} color="#15803d" />
+              </div>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "#09090b", fontFamily: "var(--font-sans)" }}>Connecté à Figma</div>
+                <div style={{ fontSize: 12, color: "#71717b", fontFamily: "var(--font-body)" }}>
+                  {connection.figma_user_name}
+                  {connection.figma_user_email ? ` · ${connection.figma_user_email}` : ""}
+                </div>
+              </div>
+            </div>
+            <p style={{ margin: "0 0 16px", fontSize: 13, color: "#71717b", fontFamily: "var(--font-body)", lineHeight: 1.5 }}>
+              Vous pouvez maintenant importer des cadres Figma directement lors de la création d&rsquo;une page — pas besoin d&rsquo;exporter en PDF.
+            </p>
+            <Btn variant="outline" size="sm" onClick={handleDisconnect} disabled={loading}>
+              {loading ? "…" : "Déconnecter"}
+            </Btn>
+          </div>
+        ) : (
+          <div>
+            <p style={{ margin: "0 0 16px", fontSize: 13, color: "#71717b", fontFamily: "var(--font-body)", lineHeight: 1.5 }}>
+              Connectez votre compte Figma pour importer des maquettes directement, sans passer par un export PDF. Vous avez besoin d&rsquo;un{" "}
+              <a href="https://www.figma.com/developers/api#access-tokens" target="_blank" rel="noreferrer" style={{ color: "#7f22fe" }}>
+                jeton d&rsquo;accès personnel Figma
+              </a>{" "}
+              (Figma → Settings → Security → Personal access tokens → Generate new token).
+            </p>
+            <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
+              <div style={{ flex: 1 }}>
+                <FieldInput label="Jeton d'accès Figma" value={token} onChange={setToken} placeholder="figd_…" type="password" />
+              </div>
+              <Btn variant="primary" size="sm" onClick={handleConnect} disabled={loading || !token.trim()}>
+                {loading ? "Vérification…" : "Connecter"}
+              </Btn>
+            </div>
+            {error && <div style={{ marginTop: 10, fontSize: 13, color: "#e7000b", fontFamily: "var(--font-body)" }}>{error}</div>}
+          </div>
+        )}
       </Card>
     </div>
   );

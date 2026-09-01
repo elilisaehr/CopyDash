@@ -24,5 +24,11 @@ export default async function ProjectPage({ params }: PageProps<"/pm/projects/[p
     .eq("project_id", projectId)
     .order("created_at", { ascending: true });
 
-  return <PagesListScreen project={project as ProjectWithClient} pages={pages ?? []} />;
+  const { data: figmaConnection } = await supabase
+    .from("figma_connections")
+    .select("pm_id")
+    .eq("pm_id", user.id)
+    .maybeSingle();
+
+  return <PagesListScreen project={project as ProjectWithClient} pages={pages ?? []} figmaConnected={!!figmaConnection} />;
 }

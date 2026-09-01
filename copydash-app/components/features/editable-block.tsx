@@ -46,9 +46,9 @@ export function EditableBlock({
     if (el && document.activeElement !== el && el.textContent !== text) el.textContent = text;
   }, [text]);
 
-  const textColor = block.dark ? "#ffffff" : "#0b0b0c";
+  const textColor = block.color || (block.dark ? "#ffffff" : "#0b0b0c");
   const bgColor = `rgb(${block.bg[0]},${block.bg[1]},${block.bg[2]})`;
-  const weight = block.fontH >= 26 ? 700 : block.fontH >= 16 ? 600 : 500;
+  const weight = block.weight || (block.fontH >= 26 ? 700 : block.fontH >= 16 ? 600 : 500);
 
   return (
     <div
@@ -83,6 +83,7 @@ export function EditableBlock({
         fontWeight: weight,
         letterSpacing: "-0.01em",
         whiteSpace: "pre",
+        textAlign: block.textAlign || "left",
         color: lifted ? textColor : "transparent",
         background: lifted ? bgColor : hover || active ? "rgba(127,34,254,0.10)" : "transparent",
         boxShadow: focused

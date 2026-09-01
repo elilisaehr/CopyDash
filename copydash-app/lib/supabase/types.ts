@@ -74,6 +74,7 @@ export interface Page {
   pdf_filename: string | null;
   pdf_storage_path: string | null;
   has_pdf_design: boolean;
+  design_source: "pdf" | "figma" | null;
   design_seed: string | null;
   updated_by_name: string | null;
   created_at: string;
@@ -134,6 +135,41 @@ export interface TeamInvitation {
   role: TeamRole;
   status: InviteStatus;
   invited_at: string;
+}
+
+export interface FigmaConnection {
+  pm_id: string;
+  access_token: string;
+  figma_user_name: string | null;
+  figma_user_email: string | null;
+  connected_at: string;
+}
+
+export interface FigmaBlock {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  text: string;
+  fontSize: number;
+  fontWeight: number;
+  color: string;
+  textAlign: "left" | "center" | "right" | "justify";
+  lineHeight: number | null;
+}
+
+export interface FigmaDesign {
+  page_id: string;
+  file_key: string;
+  node_id: string;
+  file_name: string | null;
+  frame_name: string | null;
+  image_url: string;
+  width: number;
+  height: number;
+  blocks: FigmaBlock[];
+  fetched_at: string;
 }
 
 export interface BrandingSettings {

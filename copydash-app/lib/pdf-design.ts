@@ -53,6 +53,13 @@ export interface DesignBlock {
   bg: [number, number, number];
   dark: boolean;
   kind: BlockKind;
+  /** Optional explicit overrides (used by the Figma import path, which
+   * knows the real text color/weight from the API instead of having to
+   * infer them the way the PDF geometry pipeline does). When absent,
+   * EditableBlock falls back to the `dark`/fontH-based PDF-path logic. */
+  color?: string;
+  weight?: number;
+  textAlign?: "left" | "center" | "right" | "justify";
 }
 
 // ── Small helpers (ported verbatim) ──────────────────────────────────────

@@ -15,7 +15,15 @@ export interface ProjectWithClient extends Project {
   clients: { name: string } | null;
 }
 
-export function PagesListScreen({ project, pages }: { project: ProjectWithClient; pages: Page[] }) {
+export function PagesListScreen({
+  project,
+  pages,
+  figmaConnected,
+}: {
+  project: ProjectWithClient;
+  pages: Page[];
+  figmaConnected: boolean;
+}) {
   const router = useRouter();
   const [search, setSearch] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState("All");
@@ -36,7 +44,7 @@ export function PagesListScreen({ project, pages }: { project: ProjectWithClient
     { label: "Pending Review", value: pages.filter((p) => p.status === "Pending Review").length, icon: "eye", color: "#0369a1" },
   ];
 
-  const handleAddPage = async (data: { name: string; file: File | null; pdfText: string | null }) => {
+  const handleAddPage = async (data: { name: string; file: File | null; pdfText: string | null; figmaUrl: string | null }) => {
     setAddPageOpen(false);
     setCreatingPage(true);
     setError(null);
@@ -49,7 +57,8 @@ export function PagesListScreen({ project, pages }: { project: ProjectWithClient
           name: data.name,
           status: "Draft",
           template: "custom",
-          has_pdf_design: !!data.file,
+          has_pdf_design: !!data.file || !!data.figmaUrl,
+          design_source: data.file ? "pdf" : data.figmaUrl ? "figma" : null,
         })
         .select("id")
         .single();
@@ -64,6 +73,14 @@ export function PagesListScreen({ project, pages }: { project: ProjectWithClient
           .update({ pdf_filename: data.file.name, pdf_storage_path: path, pdf_text: data.pdfText })
           .eq("id", newPage.id);
         if (updateErr) throw updateErr;
+      } else if (data.figmaUrl) {
+        const res = await fetch("/api/figma/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pageId: newPage.id, figmaUrl: data.figmaUrl }),
+        });
+        const result = await res.json();
+        if (!res.ok) throw new Error(result.error || "L'import Figma a échoué.");
       }
 
       router.push(`/pm/projects/${project.id}/pages/${newPage.id}`);
@@ -206,7 +223,7 @@ export function PagesListScreen({ project, pages }: { project: ProjectWithClient
 
       {/* Add Page Modal */}
       <Modal open={addPageOpen} onClose={() => setAddPageOpen(false)} title="Add a new page" width={580}>
-        <AddPageForm existingPages={pages} onCancel={() => setAddPageOpen(false)} onSubmit={handleAddPage} />
+        <AddPageForm existingPages={pages} figmaConnected={figmaConnected} onCancel={() => setAddPageOpen(false)} onSubmit={handleAddPage} />
       </Modal>
     </>
   );
@@ -278,16 +295,20 @@ function PageTableRow({ page: pg, last, onSelect }: { page: Page; last: boolean;
 // link for creating an empty page. No multi-step template picker.
 function AddPageForm({
   existingPages,
+  figmaConnected,
   onCancel,
   onSubmit,
 }: {
   existingPages: Page[];
+  figmaConnected: boolean;
   onCancel: () => void;
-  onSubmit: (data: { name: string; file: File | null; pdfText: string | null }) => void;
+  onSubmit: (data: { name: string; file: File | null; pdfText: string | null; figmaUrl: string | null }) => void;
 }) {
+  const [mode, setMode] = React.useState<"pdf" | "figma">("pdf");
   const [name, setName] = React.useState("");
   const [file, setFile] = React.useState<File | null>(null);
   const [pdfText, setPdfText] = React.useState<string | null>(null);
+  const [figmaUrl, setFigmaUrl] = React.useState("");
   const [extracting, setExtracting] = React.useState(false);
   const [dragOver, setDragOver] = React.useState(false);
   const fileRef = React.useRef<HTMLInputElement>(null);
@@ -308,27 +329,68 @@ function AddPageForm({
     }
   };
 
-  const canSubmit = name.trim() && !nameClash && file && !extracting;
+  const canSubmitPdf = name.trim() && !nameClash && file && !extracting;
+  const canSubmitFigma = name.trim() && !nameClash && figmaUrl.trim();
+  const canSubmit = mode === "pdf" ? canSubmitPdf : canSubmitFigma;
 
   const submit = () => {
     if (!canSubmit) return;
-    onSubmit({ name: name.trim(), file, pdfText });
+    if (mode === "pdf") onSubmit({ name: name.trim(), file, pdfText, figmaUrl: null });
+    else onSubmit({ name: name.trim(), file: null, pdfText: null, figmaUrl: figmaUrl.trim() });
   };
 
   const skip = () => {
     if (!name.trim() || nameClash) return;
-    onSubmit({ name: name.trim(), file: null, pdfText: null });
+    onSubmit({ name: name.trim(), file: null, pdfText: null, figmaUrl: null });
   };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-      <p style={{ margin: 0, fontSize: 13, color: "#71717b", fontFamily: "var(--font-body)" }}>
-        Upload the page design as a PDF — export it straight from Figma. Your client sees the real design in CopyDash and edits
-        the copy directly on it.
-      </p>
+      {/* Mode toggle */}
+      <div style={{ display: "flex", background: "#f4f4f5", borderRadius: 10, padding: 4, gap: 4 }}>
+        {[
+          { id: "pdf" as const, label: "PDF", icon: "file-text" },
+          { id: "figma" as const, label: "Figma", icon: "link" },
+        ].map((opt) => (
+          <button
+            key={opt.id}
+            type="button"
+            onClick={() => setMode(opt.id)}
+            style={{
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              padding: "8px 12px",
+              borderRadius: 8,
+              border: "none",
+              cursor: "pointer",
+              fontSize: 13,
+              fontWeight: 500,
+              fontFamily: "var(--font-sans)",
+              background: mode === opt.id ? "#fff" : "transparent",
+              color: mode === opt.id ? "#09090b" : "#71717b",
+              boxShadow: mode === opt.id ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
+            }}
+          >
+            <Icon name={opt.icon} size={13} color={mode === opt.id ? "#7f22fe" : "#a1a1aa"} />
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
+      {mode === "figma" ? (
+        <FigmaImportFields figmaConnected={figmaConnected} figmaUrl={figmaUrl} onFigmaUrl={setFigmaUrl} />
+      ) : (
+        <p style={{ margin: 0, fontSize: 13, color: "#71717b", fontFamily: "var(--font-body)" }}>
+          Upload the page design as a PDF — export it straight from Figma. Your client sees the real design in CopyDash and edits
+          the copy directly on it.
+        </p>
+      )}
 
       {/* PDF upload */}
-      <div>
+      <div style={{ display: mode === "pdf" ? "block" : "none" }}>
         <label style={{ fontSize: 12, fontWeight: 500, color: "#09090b", fontFamily: "var(--font-sans)", display: "block", marginBottom: 8 }}>
           Design PDF (from Figma)
         </label>
@@ -491,8 +553,8 @@ function AddPageForm({
 
       {/* Actions */}
       <div style={{ display: "flex", gap: 10, paddingTop: 12, borderTop: "1px solid #f4f4f5" }}>
-        <Btn variant="primary" fullWidth onClick={submit} disabled={!canSubmit} icon="file-text">
-          {extracting ? "Reading design…" : "Create page from design"}
+        <Btn variant="primary" fullWidth onClick={submit} disabled={!canSubmit} icon={mode === "figma" ? "link" : "file-text"}>
+          {mode === "pdf" ? (extracting ? "Reading design…" : "Create page from design") : "Importer depuis Figma"}
         </Btn>
         <Btn variant="outline" onClick={onCancel}>
           Cancel
@@ -500,7 +562,7 @@ function AddPageForm({
       </div>
 
       {/* Subtle skip option */}
-      {!file && (
+      {mode === "pdf" && !file && (
         <button
           type="button"
           onClick={skip}
@@ -520,6 +582,54 @@ function AddPageForm({
           Skip PDF — create an empty page
         </button>
       )}
+    </div>
+  );
+}
+
+// ── Figma import fields (used inside AddPageForm when mode === "figma") ──
+function FigmaImportFields({
+  figmaConnected,
+  figmaUrl,
+  onFigmaUrl,
+}: {
+  figmaConnected: boolean;
+  figmaUrl: string;
+  onFigmaUrl: (v: string) => void;
+}) {
+  if (!figmaConnected) {
+    return (
+      <div
+        style={{
+          padding: "14px 16px",
+          background: "#fffbeb",
+          border: "1px solid #fde68a",
+          borderRadius: 10,
+          display: "flex",
+          alignItems: "flex-start",
+          gap: 10,
+        }}
+      >
+        <Icon name="alert-circle" size={15} color="#92400e" style={{ marginTop: 1 }} />
+        <div style={{ fontSize: 12, color: "#92400e", fontFamily: "var(--font-body)", lineHeight: 1.5 }}>
+          Connectez d&rsquo;abord votre compte Figma dans{" "}
+          <a href="/pm/settings" style={{ color: "#92400e", fontWeight: 600 }}>
+            Paramètres → Integrations
+          </a>{" "}
+          pour importer directement depuis Figma.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <FieldInput
+        label="Lien du cadre Figma"
+        value={figmaUrl}
+        onChange={onFigmaUrl}
+        placeholder="https://www.figma.com/design/…?node-id=…"
+        helper="Dans Figma : clic droit sur le cadre (frame) à importer → Copy link to selection."
+      />
     </div>
   );
 }
