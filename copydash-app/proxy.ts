@@ -5,7 +5,7 @@ import { NextResponse, type NextRequest } from "next/server";
 // function to `proxy`. Runs on every request (Node runtime only) to
 // refresh the Supabase session cookie and gate PM-only / client-only
 // route groups.
-export async function proxy(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
