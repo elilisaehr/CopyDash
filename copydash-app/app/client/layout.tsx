@@ -14,7 +14,7 @@ export default async function ClientLayout({ children }: LayoutProps<"/client">)
   const profile = await ensureProfile(supabase, user);
   if (profile.role !== "client") redirect("/pm");
 
-  const { data: project } = await supabase.from("projects").select("name").limit(1).maybeSingle();
+  const { data: project } = await supabase.from("projects").select("name").is("archived_at", null).limit(1).maybeSingle();
 
   return (
     <AppLayout

@@ -15,7 +15,7 @@ export default async function ClientHomePage() {
 
   // RLS scopes this to only the project(s) this client is a member of via
   // `project_members`. The prototype assumes exactly one project per client.
-  const { data: project } = await supabase.from("projects").select("*").limit(1).maybeSingle();
+  const { data: project } = await supabase.from("projects").select("*").is("archived_at", null).limit(1).maybeSingle();
 
   let pages: Page[] = [];
   if (project) {
@@ -23,6 +23,7 @@ export default async function ClientHomePage() {
       .from("pages")
       .select("*")
       .eq("project_id", project.id)
+      .is("archived_at", null)
       .order("created_at", { ascending: true });
     pages = data || [];
   }

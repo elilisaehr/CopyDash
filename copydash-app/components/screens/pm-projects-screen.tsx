@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 import { Avatar, Btn, KPICard, PageHeader, ProgressBar, StatusBadge } from "@/components/ui/primitives";
+import { RenameModal } from "@/components/ui/rename-modal";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate } from "@/lib/format";
 import type { Project } from "@/lib/supabase/types";
@@ -21,6 +22,19 @@ export function PmProjectsScreen({ projects }: { projects: ProjectWithStats[] })
   const router = useRouter();
   const [activeTab, setActiveTab] = React.useState<FilterTab>("All");
   const [search, setSearch] = React.useState("");
+  const [renamingProject, setRenamingProject] = React.useState<ProjectWithStats | null>(null);
+
+  const handleRename = async (name: string) => {
+    if (!renamingProject) return;
+    const supabase = createClient();
+    const { error } = await supabase.from("projects").update({ name }).eq("id", renamingProject.id);
+    if (error) {
+      alert(`Couldn't rename project: ${error.message}`);
+      return;
+    }
+    setRenamingProject(null);
+    router.refresh();
+  };
 
   const filtered = projects.filter((p) => {
     const matchTab = activeTab === "All" || p.status === activeTab;
@@ -138,7 +152,13 @@ export function PmProjectsScreen({ projects }: { projects: ProjectWithStats[] })
                   </tr>
                 ) : (
                   filtered.map((p, i) => (
-                    <ProjectTableRow key={p.id} project={p} last={i === filtered.length - 1} onSelect={() => router.push(`/pm/projects/${p.id}`)} />
+                    <ProjectTableRow
+                      key={p.id}
+                      project={p}
+                      last={i === filtered.length - 1}
+                      onSelect={() => router.push(`/pm/projects/${p.id}`)}
+                      onRename={() => setRenamingProject(p)}
+                    />
                   ))
                 )}
               </tbody>
@@ -149,26 +169,44 @@ export function PmProjectsScreen({ projects }: { projects: ProjectWithStats[] })
           {filtered.length} of {projects.length} projects
         </div>
       </div>
+
+      <RenameModal
+        open={!!renamingProject}
+        title="Rename project"
+        initialName={renamingProject?.name ?? ""}
+        onCancel={() => setRenamingProject(null)}
+        onSave={handleRename}
+      />
     </>
   );
 }
 
-function ProjectTableRow({ project: p, last, onSelect }: { project: ProjectWithStats; last: boolean; onSelect: () => void }) {
+function ProjectTableRow({
+  project: p,
+  last,
+  onSelect,
+  onRename,
+}: {
+  project: ProjectWithStats;
+  last: boolean;
+  onSelect: () => void;
+  onRename: () => void;
+}) {
   const router = useRouter();
   const [hov, setHov] = React.useState(false);
   const [menuOpen, setMenuOpen] = React.useState(false);
-  const [deleting, setDeleting] = React.useState(false);
+  const [archiving, setArchiving] = React.useState(false);
 
-  const handleDelete = async (e: React.MouseEvent) => {
+  const handleArchive = async (e: React.MouseEvent) => {
     e.stopPropagation();
     setMenuOpen(false);
-    if (!confirm(`Delete "${p.name}"? This cannot be undone.`)) return;
-    setDeleting(true);
+    if (!confirm(`Archive "${p.name}"? You can restore it later from Settings → Archive.`)) return;
+    setArchiving(true);
     const supabase = createClient();
-    const { error } = await supabase.from("projects").delete().eq("id", p.id);
+    const { error } = await supabase.from("projects").update({ archived_at: new Date().toISOString() }).eq("id", p.id);
     if (error) {
-      setDeleting(false);
-      alert(`Couldn't delete project: ${error.message}`);
+      setArchiving(false);
+      alert(`Couldn't archive project: ${error.message}`);
       return;
     }
     router.refresh();
@@ -187,7 +225,7 @@ function ProjectTableRow({ project: p, last, onSelect }: { project: ProjectWithS
         cursor: "pointer",
         transition: "background 0.1s",
         borderBottom: last ? "none" : "1px solid #f4f4f5",
-        opacity: deleting ? 0.5 : 1,
+        opacity: archiving ? 0.5 : 1,
       }}
     >
       <td style={{ padding: "14px 16px" }}>
@@ -242,11 +280,22 @@ function ProjectTableRow({ project: p, last, onSelect }: { project: ProjectWithS
               Open project
             </button>
             <button
-              onClick={handleDelete}
+              onClick={(e) => {
+                e.stopPropagation();
+                setMenuOpen(false);
+                onRename();
+              }}
+              style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", border: "none", background: "none", cursor: "pointer", borderRadius: 6, fontSize: 13, fontFamily: "var(--font-body)", color: "#09090b", textAlign: "left" }}
+            >
+              <Icon name="edit" size={14} color="#71717b" />
+              Rename
+            </button>
+            <button
+              onClick={handleArchive}
               style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", border: "none", background: "none", cursor: "pointer", borderRadius: 6, fontSize: 13, fontFamily: "var(--font-body)", color: "#e7000b", textAlign: "left" }}
             >
               <Icon name="trash" size={14} color="#e7000b" />
-              Delete
+              Archive
             </button>
           </div>
         )}

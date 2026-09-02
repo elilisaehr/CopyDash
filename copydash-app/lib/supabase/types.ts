@@ -54,6 +54,7 @@ export interface Project {
   pdf_filename: string | null;
   pdf_storage_path: string | null;
   extracted_text: string | null;
+  archived_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -77,6 +78,7 @@ export interface Page {
   design_source: "pdf" | "figma" | null;
   design_seed: string | null;
   updated_by_name: string | null;
+  archived_at: string | null;
   created_at: string;
   updated_at: string;
 }

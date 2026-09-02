@@ -19,6 +19,8 @@ import { LivePreview } from "@/components/features/live-preview";
 import { ExportModal } from "@/components/features/export-modal";
 import { createClient } from "@/lib/supabase/client";
 import { mockGeneratePageContent } from "@/lib/ai-mock";
+import { useResizablePanel } from "@/hooks/use-resizable-panel";
+import { ResizeHandle } from "@/components/ui/resize-handle";
 import type { Field, Page, PageStatus, Project } from "@/lib/supabase/types";
 
 interface EditorUser {
@@ -76,6 +78,7 @@ export function EditorScreen({
   const [activeFieldId, setActiveFieldId] = React.useState<string | null>(null);
   const [exportOpen, setExportOpen] = React.useState(false);
   const [seoOpen, setSeoOpen] = React.useState(false);
+  const { width: fieldsWidth, onMouseDown: onResizeFields } = useResizablePanel(440, 320, 800, "cd-editor-fields-width");
 
   const anyEmpty = fields.length > 0 && fields.every((f) => !f.content);
   const completedFields = fields.filter((f) => f.content.length > 0).length;
@@ -260,12 +263,14 @@ export function EditorScreen({
       {/* Body — Split Pane */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0 }}>
         {/* Left: Live Preview */}
-        <div style={{ flex: "0 0 52%", overflow: "auto", padding: "32px 24px 32px 32px" }}>
+        <div style={{ flex: 1, minWidth: 320, overflow: "auto", padding: "32px 24px 32px 32px" }}>
           <LivePreview fields={fields} pageName={page.name} projectName={project.name} />
         </div>
 
-        {/* Right: Editor Fields */}
-        <div style={{ flex: "0 0 48%", background: "#fff", borderLeft: "1px solid #e4e4e7", display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 }}>
+        <ResizeHandle onMouseDown={onResizeFields} />
+
+        {/* Right: Editor Fields — drag the handle above to resize (persisted), clamped to a 320px min. */}
+        <div style={{ flex: `0 0 ${fieldsWidth}px`, width: fieldsWidth, minWidth: 320, background: "#fff", display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 }}>
           {/* Fields Header */}
           <div style={{ padding: "16px 24px", borderBottom: "1px solid #e4e4e7", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

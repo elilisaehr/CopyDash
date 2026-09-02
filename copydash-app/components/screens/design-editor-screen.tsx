@@ -24,6 +24,8 @@ import { mockGenerateFieldSuggestions } from "@/lib/ai-mock";
 import { getPdfjs } from "@/lib/pdf";
 import { createClient } from "@/lib/supabase/client";
 import { renderPdfDesign, type DesignBlock, type RenderedPage, type BlockKind } from "@/lib/pdf-design";
+import { useResizablePanel } from "@/hooks/use-resizable-panel";
+import { ResizeHandle } from "@/components/ui/resize-handle";
 import type { Project, Page, UserRole, FigmaDesign } from "@/lib/supabase/types";
 
 const KIND_LABEL: Record<BlockKind, string> = {
@@ -91,6 +93,7 @@ export function DesignEditorScreen({
 
   const [scale, setScale] = React.useState(1);
   const [autoFit, setAutoFit] = React.useState(true);
+  const { width: fieldsWidth, onMouseDown: onResizeFields } = useResizablePanel(440, 320, 800, "cd-design-fields-width");
   const paneRef = React.useRef<HTMLDivElement>(null);
   const wrapRef = React.useRef<HTMLDivElement>(null);
   const pageRefs = React.useRef<Record<number, HTMLDivElement | null>>({});
@@ -542,7 +545,7 @@ export function DesignEditorScreen({
       {/* Body — Split Pane */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0 }}>
         {/* Left: the real design */}
-        <div ref={paneRef} style={{ flex: "0 0 52%", display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0, position: "relative" }}>
+        <div ref={paneRef} style={{ flex: 1, minWidth: 320, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0, position: "relative" }}>
           {hint && editable && showDesign && (
             <div
               style={{
@@ -629,8 +632,11 @@ export function DesignEditorScreen({
           )}
         </div>
 
-        {/* Right: Editor Fields — same mechanism as the standard editor */}
-        <div style={{ flex: "0 0 48%", background: "#fff", borderLeft: "1px solid #e4e4e7", display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 }}>
+        <ResizeHandle onMouseDown={onResizeFields} />
+
+        {/* Right: Editor Fields — same mechanism as the standard editor. Drag
+            the handle above to resize (persisted), clamped to a 320px min. */}
+        <div style={{ flex: `0 0 ${fieldsWidth}px`, width: fieldsWidth, minWidth: 320, background: "#fff", display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 }}>
           <div style={{ padding: "16px 24px", borderBottom: "1px solid #e4e4e7", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <Icon name="edit" size={15} color="#71717b" />

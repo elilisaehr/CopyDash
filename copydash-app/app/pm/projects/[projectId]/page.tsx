@@ -22,6 +22,7 @@ export default async function ProjectPage({ params }: PageProps<"/pm/projects/[p
     .from("pages")
     .select("*")
     .eq("project_id", projectId)
+    .is("archived_at", null)
     .order("created_at", { ascending: true });
 
   const { data: figmaConnection } = await supabase

@@ -18,6 +18,7 @@ export default async function PmDashboardPage() {
       .from("projects")
       .select("*, client:clients(name)")
       .eq("pm_id", user.id)
+      .is("archived_at", null)
       .order("updated_at", { ascending: false }),
     supabase
       .from("activity_log")
@@ -32,7 +33,7 @@ export default async function PmDashboardPage() {
 
   let pageRows: { project_id: string; status: string }[] = [];
   if (projectIds.length > 0) {
-    const { data } = await supabase.from("pages").select("project_id, status").in("project_id", projectIds);
+    const { data } = await supabase.from("pages").select("project_id, status").in("project_id", projectIds).is("archived_at", null);
     pageRows = data ?? [];
   }
 

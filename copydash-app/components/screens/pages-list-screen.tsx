@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 import { Avatar, Btn, KPICard, Modal, PageHeader, SelectInput, Spinner, StatusBadge, FieldInput } from "@/components/ui/primitives";
+import { RenameModal } from "@/components/ui/rename-modal";
 import { createClient } from "@/lib/supabase/client";
 import { extractPdfText } from "@/lib/pdf";
 import { formatDate } from "@/lib/format";
@@ -30,6 +31,19 @@ export function PagesListScreen({
   const [addPageOpen, setAddPageOpen] = React.useState(false);
   const [creatingPage, setCreatingPage] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [renamingPage, setRenamingPage] = React.useState<Page | null>(null);
+
+  const handleRenamePage = async (name: string) => {
+    if (!renamingPage) return;
+    const supabase = createClient();
+    const { error: renameErr } = await supabase.from("pages").update({ name }).eq("id", renamingPage.id);
+    if (renameErr) {
+      alert(`Couldn't rename page: ${renameErr.message}`);
+      return;
+    }
+    setRenamingPage(null);
+    router.refresh();
+  };
 
   const filtered = pages.filter((pg) => {
     const ms = statusFilter === "All" || pg.status === statusFilter;
@@ -204,6 +218,7 @@ export function PagesListScreen({
                   page={pg}
                   last={i === filtered.length - 1}
                   onSelect={() => router.push(`/pm/projects/${project.id}/pages/${pg.id}`)}
+                  onRename={() => setRenamingPage(pg)}
                 />
               ))}
               {filtered.length === 0 && (
@@ -225,18 +240,64 @@ export function PagesListScreen({
       <Modal open={addPageOpen} onClose={() => setAddPageOpen(false)} title="Add a new page" width={580}>
         <AddPageForm existingPages={pages} figmaConnected={figmaConnected} onCancel={() => setAddPageOpen(false)} onSubmit={handleAddPage} />
       </Modal>
+
+      <RenameModal
+        open={!!renamingPage}
+        title="Rename page"
+        initialName={renamingPage?.name ?? ""}
+        onCancel={() => setRenamingPage(null)}
+        onSave={handleRenamePage}
+      />
     </>
   );
 }
 
-function PageTableRow({ page: pg, last, onSelect }: { page: Page; last: boolean; onSelect: () => void }) {
+function PageTableRow({
+  page: pg,
+  last,
+  onSelect,
+  onRename,
+}: {
+  page: Page;
+  last: boolean;
+  onSelect: () => void;
+  onRename: () => void;
+}) {
+  const router = useRouter();
   const [hov, setHov] = React.useState(false);
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const [archiving, setArchiving] = React.useState(false);
+
+  const handleArchive = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setMenuOpen(false);
+    if (!confirm(`Archive "${pg.name}"? You can restore it later from Settings → Archive.`)) return;
+    setArchiving(true);
+    const supabase = createClient();
+    const { error } = await supabase.from("pages").update({ archived_at: new Date().toISOString() }).eq("id", pg.id);
+    if (error) {
+      setArchiving(false);
+      alert(`Couldn't archive page: ${error.message}`);
+      return;
+    }
+    router.refresh();
+  };
+
   return (
     <tr
       onClick={onSelect}
       onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
-      style={{ background: hov ? "#fafafa" : "#fff", cursor: "pointer", borderBottom: last ? "none" : "1px solid #f4f4f5", transition: "background 0.1s" }}
+      onMouseLeave={() => {
+        setHov(false);
+        setMenuOpen(false);
+      }}
+      style={{
+        background: hov ? "#fafafa" : "#fff",
+        cursor: "pointer",
+        borderBottom: last ? "none" : "1px solid #f4f4f5",
+        transition: "background 0.1s",
+        opacity: archiving ? 0.5 : 1,
+      }}
     >
       <td style={{ padding: "12px 16px" }} onClick={(e) => e.stopPropagation()}>
         <input type="checkbox" style={{ cursor: "pointer" }} />
@@ -278,12 +339,57 @@ function PageTableRow({ page: pg, last, onSelect }: { page: Page; last: boolean;
           <span style={{ fontSize: 13, color: "#a1a1aa", fontFamily: "var(--font-body)" }}>—</span>
         )}
       </td>
-      <td style={{ padding: "12px 16px", textAlign: "right" }}>
+      <td style={{ padding: "12px 16px", textAlign: "right", position: "relative" }}>
         <div style={{ display: "flex", gap: 4, justifyContent: "flex-end", opacity: hov ? 1 : 0, transition: "opacity 0.1s" }}>
           <Btn variant="ghost" size="sm" icon="edit" onClick={onSelect}>
             Open
           </Btn>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenuOpen((m) => !m);
+            }}
+            style={{ background: "none", border: "none", cursor: "pointer", padding: 4, borderRadius: 6, color: "#71717b" }}
+          >
+            <Icon name="more-horizontal" size={16} />
+          </button>
         </div>
+        {menuOpen && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "absolute",
+              right: 8,
+              top: 40,
+              background: "#fff",
+              border: "1px solid #e4e4e7",
+              borderRadius: 10,
+              boxShadow: "0 4px 16px rgba(0,0,0,0.1)",
+              zIndex: 50,
+              minWidth: 160,
+              padding: 4,
+            }}
+          >
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setMenuOpen(false);
+                onRename();
+              }}
+              style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", border: "none", background: "none", cursor: "pointer", borderRadius: 6, fontSize: 13, fontFamily: "var(--font-body)", color: "#09090b", textAlign: "left" }}
+            >
+              <Icon name="edit" size={14} color="#71717b" />
+              Rename
+            </button>
+            <button
+              onClick={handleArchive}
+              style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", border: "none", background: "none", cursor: "pointer", borderRadius: 6, fontSize: 13, fontFamily: "var(--font-body)", color: "#e7000b", textAlign: "left" }}
+            >
+              <Icon name="trash" size={14} color="#e7000b" />
+              Archive
+            </button>
+          </div>
+        )}
       </td>
     </tr>
   );

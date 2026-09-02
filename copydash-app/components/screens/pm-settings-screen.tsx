@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 import { Btn, Card, FieldInput, SelectInput, Avatar, Badge, PageHeader, Toggle } from "@/components/ui/primitives";
 import { createClient } from "@/lib/supabase/client";
-import type { Profile, TeamInvitation, BrandingSettings, TeamRole, FigmaConnection } from "@/lib/supabase/types";
+import { formatDate } from "@/lib/format";
+import type { Profile, TeamInvitation, BrandingSettings, TeamRole, FigmaConnection, Project, Page } from "@/lib/supabase/types";
 
 // SectionTitle isn't in the shared primitives — ported here as a tiny local helper.
 function SectionTitle({ children }: { children: React.ReactNode }) {
@@ -32,6 +33,7 @@ const TABS = [
   { id: "team", label: "Team", icon: "users" },
   { id: "branding", label: "Branding", icon: "zap" },
   { id: "integrations", label: "Integrations", icon: "link" },
+  { id: "archive", label: "Archive", icon: "trash" },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -87,12 +89,16 @@ export function PmSettingsScreen({
   teamMembers,
   branding,
   figmaConnection,
+  archivedProjects,
+  archivedPages,
 }: {
   profile: Profile;
   notifPrefs: PmNotifPrefs;
   teamMembers: TeamInvitation[];
   branding: BrandingSettings | null;
   figmaConnection: FigmaConnection | null;
+  archivedProjects: Project[];
+  archivedPages: (Page & { project: { name: string } | null })[];
 }) {
   const [tab, setTab] = React.useState<TabId>("account");
 
@@ -118,6 +124,7 @@ export function PmSettingsScreen({
             {tab === "team" && <TeamTab pmId={profile.id} initial={teamMembers} />}
             {tab === "branding" && <BrandingTab pmId={profile.id} initial={branding} />}
             {tab === "integrations" && <IntegrationsTab initial={figmaConnection} />}
+            {tab === "archive" && <ArchiveTab initialProjects={archivedProjects} initialPages={archivedPages} />}
           </div>
         </div>
       </div>
@@ -529,6 +536,115 @@ function IntegrationsTab({ initial }: { initial: FigmaConnection | null }) {
               </Btn>
             </div>
             {error && <div style={{ marginTop: 10, fontSize: 13, color: "#e7000b", fontFamily: "var(--font-body)" }}>{error}</div>}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+// ── Archive ──────────────────────────────────────────────────────
+function ArchiveTab({
+  initialProjects,
+  initialPages,
+}: {
+  initialProjects: Project[];
+  initialPages: (Page & { project: { name: string } | null })[];
+}) {
+  const router = useRouter();
+  const [projects, setProjects] = React.useState(initialProjects);
+  const [pages, setPages] = React.useState(initialPages);
+  const [restoringId, setRestoringId] = React.useState<string | null>(null);
+
+  const restoreProject = async (id: string) => {
+    setRestoringId(id);
+    const supabase = createClient();
+    const { error } = await supabase.from("projects").update({ archived_at: null }).eq("id", id);
+    setRestoringId(null);
+    if (error) {
+      alert(`Couldn't restore project: ${error.message}`);
+      return;
+    }
+    setProjects((ps) => ps.filter((p) => p.id !== id));
+    router.refresh();
+  };
+
+  const restorePage = async (id: string) => {
+    setRestoringId(id);
+    const supabase = createClient();
+    const { error } = await supabase.from("pages").update({ archived_at: null }).eq("id", id);
+    setRestoringId(null);
+    if (error) {
+      alert(`Couldn't restore page: ${error.message}`);
+      return;
+    }
+    setPages((ps) => ps.filter((p) => p.id !== id));
+    router.refresh();
+  };
+
+  return (
+    <div>
+      <SectionTitle>Archived Projects</SectionTitle>
+      <Card style={{ marginBottom: 24 }}>
+        {projects.length === 0 ? (
+          <div style={{ fontSize: 13, color: "#a1a1aa", fontFamily: "var(--font-body)", padding: "8px 0" }}>No archived projects.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+            {projects.map((p, i) => (
+              <div
+                key={p.id}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: "12px 0",
+                  borderBottom: i < projects.length - 1 ? "1px solid #f4f4f5" : "none",
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: "#09090b", fontFamily: "var(--font-sans)" }}>{p.name}</div>
+                  <div style={{ fontSize: 12, color: "#71717b", fontFamily: "var(--font-body)", marginTop: 2 }}>
+                    Archived {p.archived_at ? formatDate(p.archived_at) : ""}
+                  </div>
+                </div>
+                <Btn variant="outline" size="sm" icon="rotate-ccw" onClick={() => restoreProject(p.id)} disabled={restoringId === p.id}>
+                  {restoringId === p.id ? "Restoring…" : "Restore"}
+                </Btn>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <SectionTitle>Archived Pages</SectionTitle>
+      <Card>
+        {pages.length === 0 ? (
+          <div style={{ fontSize: 13, color: "#a1a1aa", fontFamily: "var(--font-body)", padding: "8px 0" }}>No archived pages.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+            {pages.map((p, i) => (
+              <div
+                key={p.id}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: "12px 0",
+                  borderBottom: i < pages.length - 1 ? "1px solid #f4f4f5" : "none",
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: "#09090b", fontFamily: "var(--font-sans)" }}>{p.name}</div>
+                  <div style={{ fontSize: 12, color: "#71717b", fontFamily: "var(--font-body)", marginTop: 2 }}>
+                    {p.project?.name ? `${p.project.name} · ` : ""}
+                    Archived {p.archived_at ? formatDate(p.archived_at) : ""}
+                  </div>
+                </div>
+                <Btn variant="outline" size="sm" icon="rotate-ccw" onClick={() => restorePage(p.id)} disabled={restoringId === p.id}>
+                  {restoringId === p.id ? "Restoring…" : "Restore"}
+                </Btn>
+              </div>
+            ))}
           </div>
         )}
       </Card>
