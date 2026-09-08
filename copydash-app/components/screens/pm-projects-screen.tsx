@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 import { Avatar, Btn, KPICard, PageHeader, ProgressBar, StatusBadge } from "@/components/ui/primitives";
 import { RenameModal } from "@/components/ui/rename-modal";
+import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate } from "@/lib/format";
 import type { Project } from "@/lib/supabase/types";
@@ -196,6 +197,7 @@ function ProjectTableRow({
   const [hov, setHov] = React.useState(false);
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [archiving, setArchiving] = React.useState(false);
+  const menuBtnRef = React.useRef<HTMLButtonElement>(null);
 
   const handleArchive = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -216,10 +218,7 @@ function ProjectTableRow({
     <tr
       onClick={onSelect}
       onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => {
-        setHov(false);
-        setMenuOpen(false);
-      }}
+      onMouseLeave={() => setHov(false)}
       style={{
         background: hov ? "#fafafa" : "#fff",
         cursor: "pointer",
@@ -256,49 +255,45 @@ function ProjectTableRow({
       </td>
       <td style={{ padding: "14px 16px", textAlign: "right", position: "relative" }}>
         <button
+          ref={menuBtnRef}
           onClick={(e) => {
             e.stopPropagation();
             setMenuOpen((m) => !m);
           }}
-          style={{ background: "none", border: "none", cursor: "pointer", padding: 4, borderRadius: 6, color: "#71717b", opacity: hov ? 1 : 0, transition: "opacity 0.1s" }}
+          style={{ background: "none", border: "none", cursor: "pointer", padding: 4, borderRadius: 6, color: "#71717b", opacity: hov || menuOpen ? 1 : 0, transition: "opacity 0.1s" }}
         >
           <Icon name="more-horizontal" size={16} />
         </button>
-        {menuOpen && (
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{ position: "absolute", right: 8, top: 40, background: "#fff", border: "1px solid #e4e4e7", borderRadius: 10, boxShadow: "0 4px 16px rgba(0,0,0,0.1)", zIndex: 50, minWidth: 160, padding: 4 }}
+        <DropdownMenu open={menuOpen} anchorRef={menuBtnRef} onClose={() => setMenuOpen(false)}>
+          <button
+            onClick={() => {
+              setMenuOpen(false);
+              onSelect();
+            }}
+            style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", border: "none", background: "none", cursor: "pointer", borderRadius: 6, fontSize: 13, fontFamily: "var(--font-body)", color: "#09090b", textAlign: "left" }}
           >
-            <button
-              onClick={() => {
-                setMenuOpen(false);
-                onSelect();
-              }}
-              style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", border: "none", background: "none", cursor: "pointer", borderRadius: 6, fontSize: 13, fontFamily: "var(--font-body)", color: "#09090b", textAlign: "left" }}
-            >
-              <Icon name="folder-open" size={14} color="#71717b" />
-              Open project
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setMenuOpen(false);
-                onRename();
-              }}
-              style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", border: "none", background: "none", cursor: "pointer", borderRadius: 6, fontSize: 13, fontFamily: "var(--font-body)", color: "#09090b", textAlign: "left" }}
-            >
-              <Icon name="edit" size={14} color="#71717b" />
-              Rename
-            </button>
-            <button
-              onClick={handleArchive}
-              style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", border: "none", background: "none", cursor: "pointer", borderRadius: 6, fontSize: 13, fontFamily: "var(--font-body)", color: "#e7000b", textAlign: "left" }}
-            >
-              <Icon name="trash" size={14} color="#e7000b" />
-              Archive
-            </button>
-          </div>
-        )}
+            <Icon name="folder-open" size={14} color="#71717b" />
+            Open project
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenuOpen(false);
+              onRename();
+            }}
+            style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", border: "none", background: "none", cursor: "pointer", borderRadius: 6, fontSize: 13, fontFamily: "var(--font-body)", color: "#09090b", textAlign: "left" }}
+          >
+            <Icon name="edit" size={14} color="#71717b" />
+            Rename
+          </button>
+          <button
+            onClick={handleArchive}
+            style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", border: "none", background: "none", cursor: "pointer", borderRadius: 6, fontSize: 13, fontFamily: "var(--font-body)", color: "#e7000b", textAlign: "left" }}
+          >
+            <Icon name="trash" size={14} color="#e7000b" />
+            Archive
+          </button>
+        </DropdownMenu>
       </td>
     </tr>
   );

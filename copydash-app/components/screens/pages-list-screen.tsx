@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 import { Avatar, Btn, KPICard, Modal, PageHeader, SelectInput, Spinner, StatusBadge, FieldInput } from "@/components/ui/primitives";
 import { RenameModal } from "@/components/ui/rename-modal";
+import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { createClient } from "@/lib/supabase/client";
 import { extractPdfText } from "@/lib/pdf";
 import { formatDate } from "@/lib/format";
@@ -267,6 +268,7 @@ function PageTableRow({
   const [hov, setHov] = React.useState(false);
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [archiving, setArchiving] = React.useState(false);
+  const menuBtnRef = React.useRef<HTMLButtonElement>(null);
 
   const handleArchive = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -287,10 +289,7 @@ function PageTableRow({
     <tr
       onClick={onSelect}
       onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => {
-        setHov(false);
-        setMenuOpen(false);
-      }}
+      onMouseLeave={() => setHov(false)}
       style={{
         background: hov ? "#fafafa" : "#fff",
         cursor: "pointer",
@@ -340,11 +339,12 @@ function PageTableRow({
         )}
       </td>
       <td style={{ padding: "12px 16px", textAlign: "right", position: "relative" }}>
-        <div style={{ display: "flex", gap: 4, justifyContent: "flex-end", opacity: hov ? 1 : 0, transition: "opacity 0.1s" }}>
+        <div style={{ display: "flex", gap: 4, justifyContent: "flex-end", opacity: hov || menuOpen ? 1 : 0, transition: "opacity 0.1s" }}>
           <Btn variant="ghost" size="sm" icon="edit" onClick={onSelect}>
             Open
           </Btn>
           <button
+            ref={menuBtnRef}
             onClick={(e) => {
               e.stopPropagation();
               setMenuOpen((m) => !m);
@@ -354,42 +354,26 @@ function PageTableRow({
             <Icon name="more-horizontal" size={16} />
           </button>
         </div>
-        {menuOpen && (
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              position: "absolute",
-              right: 8,
-              top: 40,
-              background: "#fff",
-              border: "1px solid #e4e4e7",
-              borderRadius: 10,
-              boxShadow: "0 4px 16px rgba(0,0,0,0.1)",
-              zIndex: 50,
-              minWidth: 160,
-              padding: 4,
+        <DropdownMenu open={menuOpen} anchorRef={menuBtnRef} onClose={() => setMenuOpen(false)}>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenuOpen(false);
+              onRename();
             }}
+            style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", border: "none", background: "none", cursor: "pointer", borderRadius: 6, fontSize: 13, fontFamily: "var(--font-body)", color: "#09090b", textAlign: "left" }}
           >
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setMenuOpen(false);
-                onRename();
-              }}
-              style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", border: "none", background: "none", cursor: "pointer", borderRadius: 6, fontSize: 13, fontFamily: "var(--font-body)", color: "#09090b", textAlign: "left" }}
-            >
-              <Icon name="edit" size={14} color="#71717b" />
-              Rename
-            </button>
-            <button
-              onClick={handleArchive}
-              style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", border: "none", background: "none", cursor: "pointer", borderRadius: 6, fontSize: 13, fontFamily: "var(--font-body)", color: "#e7000b", textAlign: "left" }}
-            >
-              <Icon name="trash" size={14} color="#e7000b" />
-              Archive
-            </button>
-          </div>
-        )}
+            <Icon name="edit" size={14} color="#71717b" />
+            Rename
+          </button>
+          <button
+            onClick={handleArchive}
+            style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", border: "none", background: "none", cursor: "pointer", borderRadius: 6, fontSize: 13, fontFamily: "var(--font-body)", color: "#e7000b", textAlign: "left" }}
+          >
+            <Icon name="trash" size={14} color="#e7000b" />
+            Archive
+          </button>
+        </DropdownMenu>
       </td>
     </tr>
   );
