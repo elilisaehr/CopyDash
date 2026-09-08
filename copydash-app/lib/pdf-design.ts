@@ -66,6 +66,11 @@ export interface DesignBlock {
    * the Figma import path sets this; the PDF path's per-line-grouped
    * blocks keep the original single-line behavior. */
   wrap?: boolean;
+  /** Original font family read from the source design (PDF embedded font
+   * name, or Figma's node style.fontFamily). EditableBlock uses this so
+   * edited text keeps rendering in the design's own typeface instead of
+   * falling back to the app's UI font. Undefined falls back to the app font. */
+  fontFamily?: string;
 }
 
 // ── Small helpers (ported verbatim) ──────────────────────────────────────
@@ -117,6 +122,7 @@ interface RawItem {
   w: number;
   fontH: number;
   text: string;
+  fontFamily?: string;
 }
 
 interface Line {
@@ -131,7 +137,7 @@ export type MatrixTransformFn = (m1: number[], m2: number[]) => number[];
 // Group PDF text items into editable line-blocks.
 export function buildBlocks(
   items: (PdfTextItem | { str?: undefined })[],
-  _styles: Record<string, PdfTextStyle>,
+  styles: Record<string, PdfTextStyle>,
   viewport: PdfViewportLike,
   pageIndex: number,
   ctx: CanvasRenderingContext2D,
@@ -144,7 +150,9 @@ export function buildBlocks(
     const tx = transformFn(viewport.transform, it.transform);
     const fontH = Math.hypot(tx[2], tx[3]);
     if (fontH < 4) continue;
-    raw.push({ x: tx[4], baseline: tx[5], w: it.width * scale, fontH, text: it.str });
+    const fontName = (it as PdfTextItem).fontName as string | undefined;
+    const fontFamily = fontName ? styles[fontName]?.fontFamily : undefined;
+    raw.push({ x: tx[4], baseline: tx[5], w: it.width * scale, fontH, text: it.str, fontFamily });
   }
   raw.sort((a, b) => a.baseline - b.baseline || a.x - b.x);
 
@@ -194,6 +202,7 @@ export function buildBlocks(
       bg,
       dark: luminance(bg) < 0.5,
       kind: fontH >= 30 ? "heading" : fontH >= 22 ? "subhead" : fontH >= 17 ? "lead" : "body",
+      fontFamily: group[0].fontFamily,
     });
   };
   for (const L of lines) {

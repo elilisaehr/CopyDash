@@ -244,6 +244,7 @@ export function DesignEditorScreen({
       color: b.color,
       textAlign: b.textAlign,
       wrap: true,
+      fontFamily: b.fontFamily || undefined,
     }));
     // Deriving pages/blocks synchronously from already-fetched figmaDesign
     // state — no external I/O to defer past a microtask, unlike the async
@@ -281,7 +282,7 @@ export function DesignEditorScreen({
   // directly on the design (the reverse of the effect above).
   React.useEffect(() => {
     if (!activeId) return;
-    fieldRefs.current[activeId]?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    fieldRefs.current[activeId]?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [activeId]);
 
   const onChange = React.useCallback(

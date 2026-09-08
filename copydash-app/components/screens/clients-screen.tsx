@@ -41,7 +41,9 @@ export function ClientsScreen({
   const [search, setSearch] = React.useState("");
   const [addOpen, setAddOpen] = React.useState(false);
   const [editClient, setEditClient] = React.useState<ClientWithEmails | null>(null);
-  const [newClient, setNewClient] = React.useState({ name: "", contactName: "", email: "" });
+  const [newClientName, setNewClientName] = React.useState("");
+  const [newClientContact, setNewClientContact] = React.useState("");
+  const [newClientEmails, setNewClientEmails] = React.useState<EmailRow[]>([{ address: "", label: "Primary", is_primary: true }]);
   const [adding, setAdding] = React.useState(false);
   const [savingEdit, setSavingEdit] = React.useState(false);
   const [toast, setToast] = React.useState<string | null>(null);
@@ -80,8 +82,15 @@ export function ClientsScreen({
 
   const getClientProjects = (client: Client) => projects.filter((p) => p.client_id === client.id);
 
+  const canAddClient =
+    newClientName.trim().length > 0 && newClientEmails.some((e) => e.address && /\S+@\S+\.\S+/.test(e.address));
+
   const handleAddClient = async () => {
-    if (!newClient.name || !newClient.email) return;
+    if (!canAddClient) return;
+    let cleanedEmails = newClientEmails.filter((e) => e.address.trim()).map((e) => ({ ...e, address: e.address.trim() }));
+    if (cleanedEmails.length && !cleanedEmails.some((e) => e.is_primary)) {
+      cleanedEmails = cleanedEmails.map((e, i) => (i === 0 ? { ...e, is_primary: true } : e));
+    }
     setAdding(true);
     const supabase = createClient();
     const {
@@ -95,8 +104,8 @@ export function ClientsScreen({
       .from("clients")
       .insert({
         pm_id: user.id,
-        name: newClient.name,
-        contact_name: newClient.contactName || newClient.name,
+        name: newClientName.trim(),
+        contact_name: newClientContact || newClientName.trim(),
         status: "Waiting",
       })
       .select()
@@ -106,14 +115,18 @@ export function ClientsScreen({
       showToast(error?.message || "Failed to add client.");
       return;
     }
-    await supabase.from("client_emails").insert({
-      client_id: created.id,
-      address: newClient.email,
-      label: "Primary",
-      is_primary: true,
-    });
+    await supabase.from("client_emails").insert(
+      cleanedEmails.map((e) => ({
+        client_id: created.id,
+        address: e.address,
+        label: e.label,
+        is_primary: e.is_primary,
+      })),
+    );
     setAdding(false);
-    setNewClient({ name: "", contactName: "", email: "" });
+    setNewClientName("");
+    setNewClientContact("");
+    setNewClientEmails([{ address: "", label: "Primary", is_primary: true }]);
     setAddOpen(false);
     // No email provider is wired up yet — this success toast is cosmetic,
     // matching the prototype's UX; no invitation email is actually sent.
@@ -266,36 +279,13 @@ export function ClientsScreen({
       )}
 
       {/* Add Client Modal */}
-      <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add New Client" width={460}>
+      <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add New Client" width={520}>
         <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-          <FieldInput
-            label="Company Name"
-            value={newClient.name}
-            onChange={(v) => setNewClient((c) => ({ ...c, name: v }))}
-            placeholder="e.g. Acme Corp"
-          />
-          <FieldInput
-            label="Contact Name"
-            value={newClient.contactName}
-            onChange={(v) => setNewClient((c) => ({ ...c, contactName: v }))}
-            placeholder="e.g. John Smith"
-          />
-          <FieldInput
-            label="Email Address"
-            value={newClient.email}
-            onChange={(v) => setNewClient((c) => ({ ...c, email: v }))}
-            placeholder="client@company.com"
-            type="email"
-            helper="An invitation will be sent to this address."
-          />
+          <FieldInput label="Company Name" value={newClientName} onChange={setNewClientName} placeholder="e.g. Acme Corp" />
+          <FieldInput label="Contact Name" value={newClientContact} onChange={setNewClientContact} placeholder="e.g. John Smith" />
+          <EmailListEditor emails={newClientEmails} setEmails={setNewClientEmails} />
           <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-            <Btn
-              variant="primary"
-              fullWidth
-              onClick={handleAddClient}
-              disabled={!newClient.name || !newClient.email || adding}
-              icon="send"
-            >
+            <Btn variant="primary" fullWidth onClick={handleAddClient} disabled={!canAddClient || adding} icon="send">
               {adding ? "Sending…" : "Send Invitation"}
             </Btn>
             <Btn variant="outline" onClick={() => setAddOpen(false)}>
@@ -594,6 +584,162 @@ function ProjectChip({ project }: { project: ProjectLite }) {
   );
 }
 
+// ── Email list editor — shared by the Add Client and Edit Client forms ──
+function EmailListEditor({
+  emails,
+  setEmails,
+}: {
+  emails: EmailRow[];
+  setEmails: React.Dispatch<React.SetStateAction<EmailRow[]>>;
+}) {
+  const updateEmail = (i: number, key: "address" | "label", val: string) =>
+    setEmails((es) => es.map((e, idx) => (idx === i ? { ...e, [key]: val } : e)));
+
+  // "Other" (not "Secondary") so the label always lands inside LABEL_OPTIONS.
+  const addEmail = () => setEmails((es) => [...es, { address: "", label: "Other", is_primary: false }]);
+
+  const removeEmail = (i: number) =>
+    setEmails((es) => {
+      const next = es.filter((_, idx) => idx !== i);
+      if (next.length && !next.some((e) => e.is_primary)) next[0].is_primary = true;
+      return next;
+    });
+
+  const setPrimary = (i: number) => setEmails((es) => es.map((e, idx) => ({ ...e, is_primary: idx === i })));
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+        <label style={{ fontSize: 13, fontWeight: 500, color: "#09090b", fontFamily: "var(--font-sans)" }}>
+          Email Addresses
+          <span style={{ fontSize: 11, fontWeight: 400, color: "#71717b", marginLeft: 6, fontFamily: "var(--font-body)" }}>({emails.length})</span>
+        </label>
+        <button
+          onClick={addEmail}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            padding: "4px 10px",
+            background: "#f5f3ff",
+            color: "#7f22fe",
+            border: "1px solid #ddd6fe",
+            borderRadius: 6,
+            fontSize: 12,
+            fontWeight: 500,
+            cursor: "pointer",
+            fontFamily: "var(--font-sans)",
+          }}
+        >
+          <Icon name="plus" size={12} color="#7f22fe" /> Add email
+        </button>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {emails.map((em, i) => (
+          <div
+            key={em.id ?? i}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "8px 10px",
+              background: em.is_primary ? "#fdfcff" : "#fafafa",
+              border: `1px solid ${em.is_primary ? "#ddd6fe" : "#e4e4e7"}`,
+              borderRadius: 8,
+            }}
+          >
+            <input
+              type="email"
+              value={em.address}
+              onChange={(e) => updateEmail(i, "address", e.target.value)}
+              placeholder="email@company.com"
+              style={{
+                flex: 1,
+                height: 30,
+                padding: "0 10px",
+                borderRadius: 6,
+                border: "1px solid #e4e4e7",
+                fontSize: 13,
+                fontFamily: "var(--font-body)",
+                color: "#09090b",
+                background: "#fff",
+                outline: "none",
+              }}
+            />
+            <select
+              value={em.label}
+              onChange={(e) => updateEmail(i, "label", e.target.value)}
+              style={{
+                height: 30,
+                padding: "0 8px",
+                borderRadius: 6,
+                border: "1px solid #e4e4e7",
+                fontSize: 12,
+                fontFamily: "var(--font-body)",
+                color: "#09090b",
+                background: "#fff",
+                outline: "none",
+                cursor: "pointer",
+              }}
+            >
+              {LABEL_OPTIONS.map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={() => setPrimary(i)}
+              title={em.is_primary ? "Primary email" : "Set as primary"}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 3,
+                padding: "5px 8px",
+                background: em.is_primary ? "#7f22fe" : "#fff",
+                color: em.is_primary ? "#fff" : "#71717b",
+                border: `1px solid ${em.is_primary ? "#7f22fe" : "#e4e4e7"}`,
+                borderRadius: 6,
+                fontSize: 11,
+                fontWeight: 500,
+                cursor: "pointer",
+                fontFamily: "var(--font-sans)",
+              }}
+            >
+              {em.is_primary ? (
+                <>
+                  <Icon name="check" size={10} color="#fff" /> Primary
+                </>
+              ) : (
+                "Make primary"
+              )}
+            </button>
+            <button
+              onClick={() => removeEmail(i)}
+              disabled={emails.length === 1}
+              title="Remove email"
+              style={{
+                background: "none",
+                border: "none",
+                cursor: emails.length === 1 ? "not-allowed" : "pointer",
+                color: emails.length === 1 ? "#d4d4d8" : "#a1a1aa",
+                padding: 4,
+                borderRadius: 4,
+              }}
+            >
+              <Icon name="x" size={13} />
+            </button>
+          </div>
+        ))}
+      </div>
+      <p style={{ margin: "8px 2px 0", fontSize: 11, color: "#a1a1aa", fontFamily: "var(--font-body)" }}>
+        The primary email receives all invitations. Other addresses receive CC notifications.
+      </p>
+    </div>
+  );
+}
+
 // ── Edit Client Form (used in modal) ────────────────────────────────
 function EditClientForm({
   client,
@@ -615,21 +761,6 @@ function EditClientForm({
       ? client.emails.map((e) => ({ id: e.id, address: e.address, label: e.label, is_primary: e.is_primary }))
       : [{ address: "", label: "Primary", is_primary: true }],
   );
-
-  const updateEmail = (i: number, key: "address" | "label", val: string) =>
-    setEmails((es) => es.map((e, idx) => (idx === i ? { ...e, [key]: val } : e)));
-
-  // "Other" (not "Secondary") so the label always lands inside LABEL_OPTIONS.
-  const addEmail = () => setEmails((es) => [...es, { address: "", label: "Other", is_primary: false }]);
-
-  const removeEmail = (i: number) =>
-    setEmails((es) => {
-      const next = es.filter((_, idx) => idx !== i);
-      if (next.length && !next.some((e) => e.is_primary)) next[0].is_primary = true;
-      return next;
-    });
-
-  const setPrimary = (i: number) => setEmails((es) => es.map((e, idx) => ({ ...e, is_primary: idx === i })));
 
   const valid = name.trim().length > 0 && emails.some((e) => e.address && /\S+@\S+\.\S+/.test(e.address));
 
@@ -670,136 +801,7 @@ function EditClientForm({
 
       <FieldInput label="Phone (optional)" value={phone} onChange={setPhone} placeholder="+1 415 555 0142" />
 
-      {/* Emails section */}
-      <div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-          <label style={{ fontSize: 13, fontWeight: 500, color: "#09090b", fontFamily: "var(--font-sans)" }}>
-            Email Addresses
-            <span style={{ fontSize: 11, fontWeight: 400, color: "#71717b", marginLeft: 6, fontFamily: "var(--font-body)" }}>({emails.length})</span>
-          </label>
-          <button
-            onClick={addEmail}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 4,
-              padding: "4px 10px",
-              background: "#f5f3ff",
-              color: "#7f22fe",
-              border: "1px solid #ddd6fe",
-              borderRadius: 6,
-              fontSize: 12,
-              fontWeight: 500,
-              cursor: "pointer",
-              fontFamily: "var(--font-sans)",
-            }}
-          >
-            <Icon name="plus" size={12} color="#7f22fe" /> Add email
-          </button>
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {emails.map((em, i) => (
-            <div
-              key={em.id ?? i}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "8px 10px",
-                background: em.is_primary ? "#fdfcff" : "#fafafa",
-                border: `1px solid ${em.is_primary ? "#ddd6fe" : "#e4e4e7"}`,
-                borderRadius: 8,
-              }}
-            >
-              <input
-                type="email"
-                value={em.address}
-                onChange={(e) => updateEmail(i, "address", e.target.value)}
-                placeholder="email@company.com"
-                style={{
-                  flex: 1,
-                  height: 30,
-                  padding: "0 10px",
-                  borderRadius: 6,
-                  border: "1px solid #e4e4e7",
-                  fontSize: 13,
-                  fontFamily: "var(--font-body)",
-                  color: "#09090b",
-                  background: "#fff",
-                  outline: "none",
-                }}
-              />
-              <select
-                value={em.label}
-                onChange={(e) => updateEmail(i, "label", e.target.value)}
-                style={{
-                  height: 30,
-                  padding: "0 8px",
-                  borderRadius: 6,
-                  border: "1px solid #e4e4e7",
-                  fontSize: 12,
-                  fontFamily: "var(--font-body)",
-                  color: "#09090b",
-                  background: "#fff",
-                  outline: "none",
-                  cursor: "pointer",
-                }}
-              >
-                {LABEL_OPTIONS.map((o) => (
-                  <option key={o} value={o}>
-                    {o}
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={() => setPrimary(i)}
-                title={em.is_primary ? "Primary email" : "Set as primary"}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 3,
-                  padding: "5px 8px",
-                  background: em.is_primary ? "#7f22fe" : "#fff",
-                  color: em.is_primary ? "#fff" : "#71717b",
-                  border: `1px solid ${em.is_primary ? "#7f22fe" : "#e4e4e7"}`,
-                  borderRadius: 6,
-                  fontSize: 11,
-                  fontWeight: 500,
-                  cursor: "pointer",
-                  fontFamily: "var(--font-sans)",
-                }}
-              >
-                {em.is_primary ? (
-                  <>
-                    <Icon name="check" size={10} color="#fff" /> Primary
-                  </>
-                ) : (
-                  "Make primary"
-                )}
-              </button>
-              <button
-                onClick={() => removeEmail(i)}
-                disabled={emails.length === 1}
-                title="Remove email"
-                style={{
-                  background: "none",
-                  border: "none",
-                  cursor: emails.length === 1 ? "not-allowed" : "pointer",
-                  color: emails.length === 1 ? "#d4d4d8" : "#a1a1aa",
-                  padding: 4,
-                  borderRadius: 4,
-                }}
-              >
-                <Icon name="x" size={13} />
-              </button>
-            </div>
-          ))}
-        </div>
-        <p style={{ margin: "8px 2px 0", fontSize: 11, color: "#a1a1aa", fontFamily: "var(--font-body)" }}>
-          The primary email receives all invitations. Other addresses receive CC notifications.
-        </p>
-      </div>
+      <EmailListEditor emails={emails} setEmails={setEmails} />
 
       {/* Notes */}
       <div>

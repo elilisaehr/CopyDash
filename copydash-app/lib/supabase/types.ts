@@ -156,6 +156,7 @@ export interface FigmaBlock {
   text: string;
   fontSize: number;
   fontWeight: number;
+  fontFamily: string | null;
   color: string;
   textAlign: "left" | "center" | "right" | "justify";
   lineHeight: number | null;

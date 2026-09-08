@@ -80,7 +80,7 @@ export function EditableBlock({
         display: "block",
         fontSize: block.fontH * 0.96,
         lineHeight: block.wrap ? 1.3 : `${block.h + 6}px`,
-        fontFamily: "var(--font-sans)",
+        fontFamily: block.fontFamily ? `${block.fontFamily}, var(--font-sans)` : "var(--font-sans)",
         fontWeight: weight,
         letterSpacing: "-0.01em",
         whiteSpace: block.wrap ? "pre-wrap" : "pre",
@@ -90,11 +90,9 @@ export function EditableBlock({
         background: lifted ? bgColor : hover || active ? "rgba(127,34,254,0.10)" : "transparent",
         boxShadow: focused
           ? "0 0 0 2px #7f22fe"
-          : edited
-            ? "inset 0 -2px 0 rgba(127,34,254,0.55)"
-            : hover || active
-              ? "inset 0 0 0 1px rgba(127,34,254,0.45)"
-              : "none",
+          : hover || active
+            ? "inset 0 0 0 1px rgba(127,34,254,0.45)"
+            : "none",
         borderRadius: 4,
         outline: "none",
         cursor: editable ? "text" : "default",

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Icon } from "@/components/ui/icon";
 import { Btn, FieldInput, Spinner } from "@/components/ui/primitives";
+import { AuthVisual } from "@/components/ui/auth-visual";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -45,14 +46,16 @@ export default function SignupPage() {
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: "#fff", fontFamily: "var(--font-body)" }}>
       <div style={{ width: "45%", background: "#09090b", display: "flex", flexDirection: "column", padding: "40px 48px", position: "relative", overflow: "hidden" }}>
-        <div style={{ position: "absolute", inset: 0, backgroundImage: "url(/assets/auth-bg.png)", backgroundSize: "cover", backgroundPosition: "center", opacity: 0.18 }} />
         <div style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ width: 36, height: 36, borderRadius: 10, background: "#7f22fe", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Icon name="gallery-vertical-end" size={18} color="#fff" />
           </div>
           <span style={{ fontSize: 18, fontWeight: 700, color: "#fff", fontFamily: "var(--font-sans)" }}>CopyDash</span>
         </div>
-        <div style={{ position: "relative", zIndex: 1, marginTop: "auto" }}>
+
+        <AuthVisual />
+
+        <div style={{ position: "relative", zIndex: 1 }}>
           <p style={{ fontSize: 18, color: "#fff", lineHeight: 1.6, margin: "0 0 8px", fontFamily: "var(--font-sans)" }}>
             Collect content from clients.
             <br />

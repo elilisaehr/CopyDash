@@ -12,6 +12,7 @@ export interface FigmaTextBlock {
   text: string;
   fontSize: number;
   fontWeight: number;
+  fontFamily: string | null;
   color: string;
   textAlign: "left" | "center" | "right" | "justify";
   lineHeight: number | null;
@@ -150,6 +151,7 @@ export async function importFigmaFrame(
         text: n.characters || "",
         fontSize: n.style?.fontSize || 14,
         fontWeight: n.style?.fontWeight || 400,
+        fontFamily: n.style?.fontFamily || null,
         color: colorToCss(n.fills),
         textAlign: ALIGN_MAP[n.style?.textAlignHorizontal || "LEFT"] || "left",
         lineHeight: n.style?.lineHeightPx || null,
