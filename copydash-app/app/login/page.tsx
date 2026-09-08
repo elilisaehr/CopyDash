@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Icon } from "@/components/ui/icon";
 import { Avatar, Btn, FieldInput, Spinner } from "@/components/ui/primitives";
+import { AuthVisual } from "@/components/ui/auth-visual";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -34,8 +35,7 @@ export default function LoginPage() {
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: "#fff", fontFamily: "var(--font-body)" }}>
       {/* Left panel */}
-      <div style={{ width: "45%", background: "#09090b", display: "flex", flexDirection: "column", justifyContent: "space-between", padding: "40px 48px", position: "relative", overflow: "hidden" }}>
-        <div style={{ position: "absolute", inset: 0, backgroundImage: "url(/assets/auth-bg.png)", backgroundSize: "cover", backgroundPosition: "center", opacity: 0.18 }} />
+      <div style={{ width: "45%", background: "#09090b", display: "flex", flexDirection: "column", padding: "40px 48px", position: "relative", overflow: "hidden" }}>
         <div style={{ position: "relative", zIndex: 1 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 36, height: 36, borderRadius: 10, background: "#7f22fe", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -44,6 +44,9 @@ export default function LoginPage() {
             <span style={{ fontSize: 18, fontWeight: 700, color: "#fff", fontFamily: "var(--font-sans)" }}>CopyDash</span>
           </div>
         </div>
+
+        <AuthVisual />
+
         <div style={{ position: "relative", zIndex: 1 }}>
           <div style={{ width: 40, height: 2, background: "#7f22fe", marginBottom: 20, borderRadius: 1 }} />
           <p style={{ fontSize: 20, color: "#fff", lineHeight: 1.6, margin: "0 0 24px", fontFamily: "var(--font-sans)", fontWeight: 400 }}>
