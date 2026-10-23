@@ -24,7 +24,7 @@ import { mockGenerateFieldSuggestions } from "@/lib/ai-mock";
 import { getPdfjs } from "@/lib/pdf";
 import { createClient } from "@/lib/supabase/client";
 import { renderPdfDesign, joinLines, legacyLineIdPrefix, type DesignBlock, type RenderedPage, type BlockKind } from "@/lib/pdf-design";
-import { FONT_NAMES, cssFamily, fontForKind, useDesignFonts, useFontPreviews, type DesignFonts } from "@/lib/design-fonts";
+import { FONT_NAMES, cssFamily, fontForKind, useDesignFonts, useFontPreviews, useWebFonts, type DesignFonts } from "@/lib/design-fonts";
 import { useResizablePanel } from "@/hooks/use-resizable-panel";
 import { ResizeHandle } from "@/components/ui/resize-handle";
 import type { Project, Page, UserRole, FigmaDesign } from "@/lib/supabase/types";
@@ -110,6 +110,8 @@ export function DesignEditorScreen({
   const [fontsOpen, setFontsOpen] = React.useState(false);
   const [designFonts, setDesignFonts] = React.useState<DesignFonts | null>(page.design_fonts ?? null);
   useDesignFonts(designFonts);
+  const [figmaFonts, setFigmaFonts] = React.useState<string[]>([]);
+  useWebFonts(figmaFonts);
   const [seoOpen, setSeoOpen] = React.useState(false);
   const [aiState, setAiState] = React.useState<AiState>("idle");
   const [aiProgress, setAiProgress] = React.useState(0);
@@ -249,9 +251,11 @@ export function DesignEditorScreen({
       dark: false,
       kind: b.fontSize >= 30 ? "heading" : b.fontSize >= 22 ? "subhead" : b.fontSize >= 17 ? "lead" : "body",
       color: b.color,
+      weight: b.fontWeight,
       textAlign: b.textAlign,
       wrap: true,
-      fontFamily: b.fontFamily || undefined,
+      lineHeight: b.lineHeight ? b.lineHeight * s : undefined,
+      fontFamily: b.fontFamily ? cssFamily(b.fontFamily) : undefined,
     }));
     // Deriving pages/blocks synchronously from already-fetched figmaDesign
     // state — no external I/O to defer past a microtask, unlike the async
@@ -267,6 +271,7 @@ export function DesignEditorScreen({
       },
     ]);
     setBlocks(scaledBlocks);
+    setFigmaFonts([...new Set(figmaDesign.blocks.map((b) => b.fontFamily).filter((f): f is string => !!f))]);
     handleNaturalWidth(figmaDesign.width);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [figmaDesign, scale]);

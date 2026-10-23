@@ -79,6 +79,28 @@ export function useDesignFonts(fonts: DesignFonts | null | undefined) {
   useStylesheet("cd-design-fonts", names.length ? googleFontsUrl(names.map((n) => familyParam(n, GOOGLE_FONTS[n]))) : null);
 }
 
+/**
+ * Loads fonts named by a Figma design from Google Fonts, one stylesheet per
+ * family so a family Google doesn't have (a paid or local font) only fails
+ * on its own; the browser then falls back as before.
+ */
+export function useWebFonts(names: string[]) {
+  const key = [...new Set(names)].sort().join("|");
+  React.useEffect(() => {
+    if (!key) return;
+    for (const name of key.split("|")) {
+      const id = `cd-webfont-${name.replace(/[^a-zA-Z0-9]/g, "-")}`;
+      if (document.getElementById(id)) continue;
+      const link = document.createElement("link");
+      link.id = id;
+      link.rel = "stylesheet";
+      // Unlisted families: ask for the weights nearly every family has.
+      link.href = googleFontsUrl([familyParam(name, GOOGLE_FONTS[name] || "400;700")]);
+      document.head.appendChild(link);
+    }
+  }, [key]);
+}
+
 /** Loads every font in the list at 400/700, for previews in the picker. */
 export function useFontPreviews(enabled: boolean) {
   useStylesheet("cd-font-previews", enabled ? googleFontsUrl(FONT_NAMES.map((n) => familyParam(n, "400;700"))) : null);
