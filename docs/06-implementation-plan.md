@@ -29,6 +29,27 @@
 | Decide on password reset | Either a real "forgot password" flow (Supabase Auth supports this natively) or explicitly deprioritize it | The Settings → Account password form either works or is removed/labeled "coming soon" instead of silently doing nothing | None |
 | Review Figma token storage | Decision: accept plaintext storage for now, or add encryption | Documented decision in the TRD; implemented if "encrypt" is chosen | None |
 
+## Next up — product decisions of 2026-10-23 (in this order)
+
+**A. Roles, workspaces and onboarding**
+- Three roles: **Admin** (agency owner — creates projects, manages everything and everyone), **Editor** (agency teammate — can add/remove and edit pages, only in projects they're invited to), **Client** (edits the copy on their pages only, creates nothing).
+- Introduce a workspace (the agency) that owns projects, so limits and billing attach to it. Existing PMs become Admins of an auto-created workspace; existing clients stay Clients.
+- Real invitation emails (Resend) for editors and clients — replaces today's cosmetic Team invitations.
+- Onboarding: a short first-login wizard — agency name → first project → first page (PDF or Figma) → lands in the editor; inviting someone is offered at the end, optional.
+
+**B. Clearer review**
+- Statuses that say who must act: Draft → With client → To review (agency) → Approved, replacing the two-way "Pending Review"; a clear "your turn" banner.
+- Show what changed since the last hand-off (before/after, who edited what).
+- Email notification when it's someone's turn (uses A's email provider).
+
+**C. Export for developers**
+- Copy button on every text; a read-only page view to copy from.
+- A PDF of the page design with the final copy as real, selectable text, so a developer can copy-paste from it.
+- CSV, Excel and Word exports.
+
+**D. Paid plans**
+- Free: 1 project, 2 pages. Two paid plans — limits and prices not decided yet, so build plan limits as data that's easy to change. Stripe once pricing is set.
+
 ## Milestone 2 — Data and auth hardening
 
 - Decide and implement a data retention/deletion policy (see Backend Schema doc, "Retention and deletion").
