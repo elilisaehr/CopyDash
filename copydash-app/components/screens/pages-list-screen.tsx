@@ -9,6 +9,9 @@ import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { createClient } from "@/lib/supabase/client";
 import { extractPdfText } from "@/lib/pdf";
 import { formatDate } from "@/lib/format";
+import { planLimitError } from "@/lib/plan";
+import { createPage, type NewPageData } from "@/lib/create-page";
+import { PlanLimitNotice } from "@/components/features/plan-limit-notice";
 import type { Page, Project } from "@/lib/supabase/types";
 
 const STATUS_FILTERS = ["All", "Draft", "In Progress", "Pending Review", "Completed"];
@@ -21,10 +24,13 @@ export function PagesListScreen({
   project,
   pages,
   figmaConnected,
+  pageLimitMessage,
 }: {
   project: ProjectWithClient;
   pages: Page[];
   figmaConnected: boolean;
+  /** Set when the plan's page limit for this project is reached. */
+  pageLimitMessage: string | null;
 }) {
   const router = useRouter();
   const [search, setSearch] = React.useState("");
@@ -59,49 +65,16 @@ export function PagesListScreen({
     { label: "Pending Review", value: pages.filter((p) => p.status === "Pending Review").length, icon: "eye", color: "#0369a1" },
   ];
 
-  const handleAddPage = async (data: { name: string; file: File | null; pdfText: string | null; figmaUrl: string | null }) => {
+  const handleAddPage = async (data: NewPageData) => {
     setAddPageOpen(false);
     setCreatingPage(true);
     setError(null);
-    const supabase = createClient();
     try {
-      const { data: newPage, error: insertErr } = await supabase
-        .from("pages")
-        .insert({
-          project_id: project.id,
-          name: data.name,
-          status: "Draft",
-          template: "custom",
-          has_pdf_design: !!data.file || !!data.figmaUrl,
-          design_source: data.file ? "pdf" : data.figmaUrl ? "figma" : null,
-        })
-        .select("id")
-        .single();
-      if (insertErr) throw insertErr;
-
-      if (data.file) {
-        const path = `${project.id}/pages/${newPage.id}/${data.file.name}`;
-        const { error: uploadErr } = await supabase.storage.from("pdfs").upload(path, data.file, { upsert: true });
-        if (uploadErr) throw uploadErr;
-        const { error: updateErr } = await supabase
-          .from("pages")
-          .update({ pdf_filename: data.file.name, pdf_storage_path: path, pdf_text: data.pdfText })
-          .eq("id", newPage.id);
-        if (updateErr) throw updateErr;
-      } else if (data.figmaUrl) {
-        const res = await fetch("/api/figma/import", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ pageId: newPage.id, figmaUrl: data.figmaUrl }),
-        });
-        const result = await res.json();
-        if (!res.ok) throw new Error(result.error || "L'import Figma a échoué.");
-      }
-
-      router.push(`/pm/projects/${project.id}/pages/${newPage.id}`);
+      const pageId = await createPage(project.id, data);
+      router.push(`/pm/projects/${project.id}/pages/${pageId}`);
       router.refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't create the page. Please try again.");
+      setError(planLimitError(e) ?? (e instanceof Error ? e.message : "Couldn't create the page. Please try again."));
       setCreatingPage(false);
     }
   };
@@ -117,7 +90,7 @@ export function PagesListScreen({
             <Btn variant="outline" size="sm" icon="share">
               Share
             </Btn>
-            <Btn variant="primary" icon="plus" onClick={() => setAddPageOpen(true)} disabled={creatingPage}>
+            <Btn variant="primary" icon="plus" onClick={() => setAddPageOpen(true)} disabled={creatingPage || !!pageLimitMessage}>
               {creatingPage ? "Creating…" : "Add Page"}
             </Btn>
           </>
@@ -131,6 +104,7 @@ export function PagesListScreen({
       </div>
 
       <div style={{ padding: "24px 48px 48px", flex: 1 }}>
+        {pageLimitMessage && <PlanLimitNotice message={pageLimitMessage} style={{ marginBottom: 16 }} />}
         {error && (
           <div
             style={{
@@ -383,16 +357,18 @@ function PageTableRow({
 // Final iteration from the design prototype: a single PDF drop zone that
 // auto-fills the page name from the filename, plus a subtle "skip PDF"
 // link for creating an empty page. No multi-step template picker.
-function AddPageForm({
+export function AddPageForm({
   existingPages,
   figmaConnected,
   onCancel,
   onSubmit,
+  cancelLabel = "Cancel",
 }: {
   existingPages: Page[];
   figmaConnected: boolean;
   onCancel: () => void;
-  onSubmit: (data: { name: string; file: File | null; pdfText: string | null; figmaUrl: string | null }) => void;
+  cancelLabel?: string;
+  onSubmit: (data: NewPageData) => void;
 }) {
   const [mode, setMode] = React.useState<"pdf" | "figma">("pdf");
   const [name, setName] = React.useState("");
@@ -647,7 +623,7 @@ function AddPageForm({
           {mode === "pdf" ? (extracting ? "Reading design…" : "Create page from design") : "Importer depuis Figma"}
         </Btn>
         <Btn variant="outline" onClick={onCancel}>
-          Cancel
+          {cancelLabel}
         </Btn>
       </div>
 

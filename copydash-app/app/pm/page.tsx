@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getWorkspaceContext } from "@/lib/workspace";
 import { PmOverviewScreen, type ProjectWithStats } from "@/components/screens/pm-overview-screen";
 import type { Client, Project } from "@/lib/supabase/types";
 
@@ -11,19 +12,22 @@ export default async function PmDashboardPage() {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
+  const ctx = await getWorkspaceContext(supabase, user.id);
+  if (!ctx) redirect("/onboarding");
 
+  // RLS scopes both queries: admins see the whole workspace, editors only
+  // the projects they're invited to (and no activity feed).
   const [{ data: profile }, { data: projectRows }, { data: activity }] = await Promise.all([
     supabase.from("profiles").select("name").eq("id", user.id).maybeSingle(),
     supabase
       .from("projects")
       .select("*, client:clients(name)")
-      .eq("pm_id", user.id)
+      .eq("workspace_id", ctx.workspace.id)
       .is("archived_at", null)
       .order("updated_at", { ascending: false }),
     supabase
       .from("activity_log")
       .select("*")
-      .eq("pm_id", user.id)
       .order("created_at", { ascending: false })
       .limit(5),
   ]);
@@ -59,5 +63,5 @@ export default async function PmDashboardPage() {
   const greeting = hour < 12 ? "morning" : hour < 18 ? "afternoon" : "evening";
   const firstName = (profile?.name || user.email || "there").split(" ")[0];
 
-  return <PmOverviewScreen firstName={firstName} greeting={greeting} projects={projects} activity={activity ?? []} />;
+  return <PmOverviewScreen firstName={firstName} greeting={greeting} projects={projects} activity={activity ?? []} isAdmin={ctx.role === "admin"} />;
 }

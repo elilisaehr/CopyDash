@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 import { Btn, Card, FieldInput, SelectInput, Avatar, Badge, PageHeader, Toggle } from "@/components/ui/primitives";
+import { planLimitError } from "@/lib/plan";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate } from "@/lib/format";
 import type { Profile, TeamInvitation, BrandingSettings, TeamRole, FigmaConnection, Project, Page } from "@/lib/supabase/types";
@@ -37,6 +38,9 @@ const TABS = [
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
+
+// Workspace-wide settings are admin-only.
+const ADMIN_TABS: TabId[] = ["team", "branding", "archive"];
 
 export type PmNotifPrefs = {
   clientUpdates: boolean;
@@ -91,6 +95,7 @@ export function PmSettingsScreen({
   figmaConnection,
   archivedProjects,
   archivedPages,
+  isAdmin,
 }: {
   profile: Profile;
   notifPrefs: PmNotifPrefs;
@@ -99,8 +104,10 @@ export function PmSettingsScreen({
   figmaConnection: FigmaConnection | null;
   archivedProjects: Project[];
   archivedPages: (Page & { project: { name: string } | null })[];
+  isAdmin: boolean;
 }) {
   const [tab, setTab] = React.useState<TabId>("account");
+  const tabs = TABS.filter((t) => isAdmin || !ADMIN_TABS.includes(t.id));
 
   return (
     <>
@@ -111,7 +118,7 @@ export function PmSettingsScreen({
           {/* Left: Tab nav */}
           <div style={{ width: 200, flexShrink: 0 }}>
             <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-              {TABS.map((t) => (
+              {tabs.map((t) => (
                 <TabNavButton key={t.id} id={t.id} label={t.label} icon={t.icon} active={tab === t.id} onClick={() => setTab(t.id)} />
               ))}
             </nav>
@@ -562,7 +569,7 @@ function ArchiveTab({
     const { error } = await supabase.from("projects").update({ archived_at: null }).eq("id", id);
     setRestoringId(null);
     if (error) {
-      alert(`Couldn't restore project: ${error.message}`);
+      alert(planLimitError(error) ?? `Couldn't restore project: ${error.message}`);
       return;
     }
     setProjects((ps) => ps.filter((p) => p.id !== id));
@@ -575,7 +582,7 @@ function ArchiveTab({
     const { error } = await supabase.from("pages").update({ archived_at: null }).eq("id", id);
     setRestoringId(null);
     if (error) {
-      alert(`Couldn't restore page: ${error.message}`);
+      alert(planLimitError(error) ?? `Couldn't restore page: ${error.message}`);
       return;
     }
     setPages((ps) => ps.filter((p) => p.id !== id));

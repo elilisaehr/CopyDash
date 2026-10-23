@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 import { Btn, Card, FieldInput, PageHeader, SelectInput, Spinner } from "@/components/ui/primitives";
 import { createClient } from "@/lib/supabase/client";
+import { planLimitError } from "@/lib/plan";
+import { PlanLimitNotice } from "@/components/features/plan-limit-notice";
 
 export interface CreateProjectClient {
   id: string;
@@ -23,7 +25,16 @@ const labelStyle: React.CSSProperties = {
   display: "block",
 };
 
-export function CreateProjectScreen({ clients }: { clients: CreateProjectClient[] }) {
+export function CreateProjectScreen({
+  clients,
+  workspaceId,
+  limitMessage,
+}: {
+  clients: CreateProjectClient[];
+  workspaceId: string;
+  /** Set when the plan's project limit is already reached: shown instead of the form. */
+  limitMessage: string | null;
+}) {
   const router = useRouter();
   const [form, setForm] = React.useState({
     name: "",
@@ -52,7 +63,7 @@ export function CreateProjectScreen({ clients }: { clients: CreateProjectClient[
         if (form.newClientName.trim()) {
           const { data: newClient, error: clientErr } = await supabase
             .from("clients")
-            .insert({ pm_id: user.id, name: form.newClientName.trim() })
+            .insert({ pm_id: user.id, workspace_id: workspaceId, name: form.newClientName.trim() })
             .select("id")
             .single();
           if (clientErr) throw clientErr;
@@ -72,7 +83,7 @@ export function CreateProjectScreen({ clients }: { clients: CreateProjectClient[
 
       const { data: project, error: projErr } = await supabase
         .from("projects")
-        .insert({ pm_id: user.id, client_id: clientId, name: form.name.trim(), status: "In Progress" })
+        .insert({ pm_id: user.id, workspace_id: workspaceId, client_id: clientId, name: form.name.trim(), status: "In Progress" })
         .select("id")
         .single();
       if (projErr) throw projErr;
@@ -80,7 +91,7 @@ export function CreateProjectScreen({ clients }: { clients: CreateProjectClient[
       router.push(`/pm/projects/${project.id}`);
       router.refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
+      setError(planLimitError(e) ?? (e instanceof Error ? e.message : "Something went wrong. Please try again."));
       setSubmitting(false);
     }
   };
@@ -97,7 +108,8 @@ export function CreateProjectScreen({ clients }: { clients: CreateProjectClient[
 
       <div style={{ flex: 1, overflowY: "auto", padding: "40px 48px" }}>
         <div style={{ maxWidth: 640 }}>
-          {error && (
+          {limitMessage && <PlanLimitNotice message={limitMessage} />}
+          {!limitMessage && error && (
             <div
               style={{
                 marginBottom: 20,
@@ -115,6 +127,7 @@ export function CreateProjectScreen({ clients }: { clients: CreateProjectClient[
             </div>
           )}
 
+          {!limitMessage && (
           <div>
             <Card>
               <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
@@ -190,6 +203,7 @@ export function CreateProjectScreen({ clients }: { clients: CreateProjectClient[
               </Btn>
             </div>
           </div>
+          )}
         </div>
       </div>
     </>

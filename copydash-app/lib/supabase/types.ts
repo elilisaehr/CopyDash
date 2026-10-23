@@ -28,6 +28,7 @@ export interface Profile {
 export interface Client {
   id: string;
   pm_id: string;
+  workspace_id: string | null;
   name: string;
   contact_name: string;
   phone: string;
@@ -50,6 +51,7 @@ export interface ClientEmail {
 export interface Project {
   id: string;
   pm_id: string;
+  workspace_id: string | null;
   client_id: string | null;
   name: string;
   status: ProjectStatus;
@@ -64,7 +66,50 @@ export interface Project {
 export interface ProjectMember {
   project_id: string;
   user_id: string;
+  role: ProjectMemberRole;
   added_at: string;
+}
+
+// ── Workspaces (migration 0007) ─────────────────────────────────────
+export type WorkspaceRole = "admin" | "editor";
+export type ProjectMemberRole = "editor" | "client";
+export type InvitationRole = "admin" | "editor" | "client";
+
+export interface PlanLimits {
+  plan: string;
+  /** null = unlimited */
+  max_projects: number | null;
+  max_pages_per_project: number | null;
+  max_members: number | null;
+}
+
+export interface Workspace {
+  id: string;
+  name: string;
+  owner_id: string;
+  plan: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkspaceMember {
+  workspace_id: string;
+  user_id: string;
+  role: WorkspaceRole;
+  created_at: string;
+}
+
+export interface Invitation {
+  id: string;
+  workspace_id: string;
+  email: string;
+  role: InvitationRole;
+  project_ids: string[];
+  token: string;
+  invited_by: string | null;
+  created_at: string;
+  accepted_at: string | null;
+  accepted_by: string | null;
 }
 
 export interface Page {

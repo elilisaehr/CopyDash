@@ -31,11 +31,14 @@ export function PmOverviewScreen({
   greeting,
   projects,
   activity,
+  isAdmin,
 }: {
   firstName: string;
   greeting: Greeting;
   projects: ProjectWithStats[];
   activity: ActivityLogEntry[];
+  /** Editors can't create projects or manage clients. */
+  isAdmin: boolean;
 }) {
   const router = useRouter();
 
@@ -52,9 +55,11 @@ export function PmOverviewScreen({
         title={`Good ${greeting}, ${firstName}`}
         subtitle="Here's what's happening across your projects today"
         actions={
-          <Btn variant="primary" icon="plus" onClick={() => router.push("/pm/projects/new")}>
-            New Project
-          </Btn>
+          isAdmin && (
+            <Btn variant="primary" icon="plus" onClick={() => router.push("/pm/projects/new")}>
+              New Project
+            </Btn>
+          )
         }
       />
 
@@ -185,8 +190,8 @@ export function PmOverviewScreen({
             <div>
               <h3 style={{ margin: "0 0 14px", fontSize: 16, fontWeight: 600, color: "#09090b", fontFamily: "var(--font-sans)" }}>Quick Actions</h3>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                <QuickAction icon="circle-plus" color="#7f22fe" bg="#f5f3ff" label="Create new project" onClick={() => router.push("/pm/projects/new")} />
-                <QuickAction icon="users" color="#0369a1" bg="#eff6ff" label="Manage clients" onClick={() => router.push("/pm/clients")} />
+                {isAdmin && <QuickAction icon="circle-plus" color="#7f22fe" bg="#f5f3ff" label="Create new project" onClick={() => router.push("/pm/projects/new")} />}
+                {isAdmin && <QuickAction icon="users" color="#0369a1" bg="#eff6ff" label="Manage clients" onClick={() => router.push("/pm/clients")} />}
                 <QuickAction icon="folder-open" color="#15803d" bg="#f0fdf4" label="View all projects" onClick={() => router.push("/pm/projects")} />
               </div>
             </div>

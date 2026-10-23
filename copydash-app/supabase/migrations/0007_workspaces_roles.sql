@@ -339,7 +339,7 @@ create policy "workspaces: create own" on public.workspaces for insert
 create policy "workspaces: admins update" on public.workspaces for update
   using (public.is_workspace_admin(id)) with check (public.is_workspace_admin(id));
 revoke insert, update on public.workspaces from anon, authenticated;
-grant insert (name, owner_id) on public.workspaces to authenticated;
+grant insert (id, name, owner_id) on public.workspaces to authenticated;
 grant update (name) on public.workspaces to authenticated;
 
 -- workspace_members: members see their colleagues; admins manage, but the

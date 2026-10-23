@@ -32,10 +32,12 @@ export function ClientsScreen({
   initialClients,
   initialClientEmails,
   projects,
+  workspaceId,
 }: {
   initialClients: Client[];
   initialClientEmails: ClientEmail[];
   projects: ProjectLite[];
+  workspaceId: string;
 }) {
   const router = useRouter();
   const [search, setSearch] = React.useState("");
@@ -104,6 +106,7 @@ export function ClientsScreen({
       .from("clients")
       .insert({
         pm_id: user.id,
+        workspace_id: workspaceId,
         name: newClientName.trim(),
         contact_name: newClientContact || newClientName.trim(),
         status: "Waiting",

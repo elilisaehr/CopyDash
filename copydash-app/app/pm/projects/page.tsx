@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getWorkspaceContext } from "@/lib/workspace";
 import { PmProjectsScreen, type ProjectWithStats } from "@/components/screens/pm-projects-screen";
 import type { Client, Project } from "@/lib/supabase/types";
 
@@ -11,11 +12,13 @@ export default async function PmProjectsPage() {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
+  const ctx = await getWorkspaceContext(supabase, user.id);
+  if (!ctx) redirect("/onboarding");
 
   const { data: projectRows } = await supabase
     .from("projects")
     .select("*, client:clients(name)")
-    .eq("pm_id", user.id)
+    .eq("workspace_id", ctx.workspace.id)
     .is("archived_at", null)
     .order("updated_at", { ascending: false });
 
@@ -46,5 +49,5 @@ export default async function PmProjectsPage() {
     };
   });
 
-  return <PmProjectsScreen projects={projects} />;
+  return <PmProjectsScreen projects={projects} isAdmin={ctx.role === "admin"} />;
 }
