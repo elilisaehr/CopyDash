@@ -132,7 +132,6 @@ interface RawItem {
   w: number;
   fontH: number;
   text: string;
-  fontName?: string;
   fontFamily?: string;
 }
 
@@ -148,7 +147,6 @@ interface Segment {
   baseline: number;
   fontH: number;
   text: string;
-  fontName?: string;
   fontFamily?: string;
 }
 
@@ -160,14 +158,6 @@ interface Paragraph {
 
 const joinText = (parts: string[]) => parts.join(" ").replace(/\s+/g, " ").trim();
 
-// Font covering the most characters in a run — a run's first item can be
-// a one-word bold lead-in, so group[0] alone isn't representative.
-const dominantFont = (group: RawItem[]) => {
-  const count: Record<string, number> = {};
-  for (const o of group) if (o.fontName) count[o.fontName] = (count[o.fontName] || 0) + o.text.length;
-  return Object.keys(count).sort((a, b) => count[b] - count[a])[0];
-};
-
 const toSegment = (group: RawItem[]): Segment | null => {
   const text = joinText(group.map((o) => o.text));
   if (!text) return null;
@@ -177,7 +167,6 @@ const toSegment = (group: RawItem[]): Segment | null => {
     baseline: Math.max(...group.map((o) => o.baseline)),
     fontH: Math.max(...group.map((o) => o.fontH)),
     text,
-    fontName: dominantFont(group),
     fontFamily: group[0].fontFamily,
   };
 };
@@ -189,10 +178,10 @@ const LIST_ITEM = /^([•●▪◦·‣–—*-]|\d{1,3}[.)]|[a-zA-Z][.)])\s/;
 // Does segment `b` continue paragraph `p` (whose current last line is `a`)?
 function continuesParagraph(p: Paragraph, a: Segment, b: Segment): boolean {
   if (LIST_ITEM.test(b.text)) return false;
-  // Same type size and the same embedded font (a bold title above body copy
-  // set at the same size stays separate).
+  // Same type size. The embedded font name isn't compared: exporters split
+  // one typeface into several font subsets, so two lines of the same title
+  // can carry different font names (seen on a real Figma/browser export).
   if (Math.abs(a.fontH - b.fontH) > Math.max(a.fontH, b.fontH) * 0.12) return false;
-  if (a.fontName && b.fontName && a.fontName !== b.fontName) return false;
   // Directly below, at normal line spacing — a wider gap is a paragraph break.
   const gap = b.baseline - a.baseline;
   if (gap < a.fontH * 0.9 || gap > a.fontH * 1.9) return false;
@@ -241,7 +230,7 @@ export function buildBlocks(
     if (fontH < 4) continue;
     const fontName = (it as PdfTextItem).fontName as string | undefined;
     const fontFamily = fontName ? styles[fontName]?.fontFamily : undefined;
-    raw.push({ x: tx[4], baseline: tx[5], w: it.width * scale, fontH, text: it.str, fontName, fontFamily });
+    raw.push({ x: tx[4], baseline: tx[5], w: it.width * scale, fontH, text: it.str, fontFamily });
   }
   raw.sort((a, b) => a.baseline - b.baseline || a.x - b.x);
 
