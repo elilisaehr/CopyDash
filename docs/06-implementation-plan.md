@@ -45,6 +45,8 @@
 
 ## Milestone 4 — Secondary features (only if the PRD's open questions resolve toward "needed for v1")
 
+- **Mixed styles inside one text block (decided: rich text, deferred — not a priority).** A Figma text node can mix colours/weights (e.g. a title whose second line is orange); today an edited block takes the first style only. Plan: import Figma's per-character style runs (`characterStyleOverrides` + `styleOverrideTable`), render the editable overlay as styled spans so typing inherits the run under the caret, store runs alongside the plain-text edit (new `design_edits` column; plain `content` stays for export/SEO/AI), and re-map runs when the side-panel textarea edits plain text (unchanged prefix/suffix keep their style, inserted text takes its neighbour's). Figma first; PDF later via per-item ink sampling.
+
 - Wire a real LLM provider behind `lib/ai-mock.ts`'s existing interface (writing suggestions + "extract content from PDF").
 - Wire a real transactional email provider for Team Invitations and Client invitations.
 - Real Team/seat management if multi-person agencies are the target customer.
