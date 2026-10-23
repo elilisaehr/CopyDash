@@ -108,6 +108,8 @@ export function DesignEditorScreen({
   const [pageStatus, setPageStatus] = React.useState<string>(page.status);
   const [exportOpen, setExportOpen] = React.useState(false);
   const [fontsOpen, setFontsOpen] = React.useState(false);
+  const [resyncError, setResyncError] = React.useState<string | null>(null);
+  const [resyncConflicts, setResyncConflicts] = React.useState<ResyncConflict[] | null>(null);
   const [designFonts, setDesignFonts] = React.useState<DesignFonts | null>(page.design_fonts ?? null);
   useDesignFonts(designFonts);
   const [figmaFonts, setFigmaFonts] = React.useState<string[]>([]);
@@ -514,21 +516,57 @@ export function DesignEditorScreen({
 
   const handleResyncFigma = async () => {
     if (!figmaDesign) return;
+    const before = figmaDesign;
+    setResyncError(null);
     setPdfStatus("loading");
-    const fakeUrl = `https://www.figma.com/design/${figmaDesign.file_key}/resync?node-id=${figmaDesign.node_id.replace(":", "-")}`;
+    const fakeUrl = `https://www.figma.com/design/${before.file_key}/resync?node-id=${before.node_id.replace(/:/g, "-")}`;
     const res = await fetch("/api/figma/import", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ pageId: page.id, figmaUrl: fakeUrl }),
     });
     if (!res.ok) {
-      setPdfStatus("error");
+      // The previously imported design is still valid — keep showing it.
+      const body = await res.json().catch(() => ({}));
+      setResyncError(body.error || `Re-sync failed (${res.status}).`);
+      setPdfStatus("ready");
       return;
     }
     const supabase = createClient();
     const { data } = await supabase.from("figma_designs").select("*").eq("page_id", page.id).maybeSingle();
-    setFigmaDesign(data as unknown as FigmaDesign);
+    if (!data) {
+      setResyncError("Re-sync finished but the design couldn’t be reloaded. Refresh the page.");
+      setPdfStatus("ready");
+      return;
+    }
+    const next = data as unknown as FigmaDesign;
+    // A conflict: the text changed in Figma AND was edited in CopyDash to
+    // something else. Those need a decision; everything else just updates.
+    const prevText = new Map(before.blocks.map((b) => [b.id, b.text]));
+    const conflicts: ResyncConflict[] = [];
+    for (const b of next.blocks) {
+      const prev = prevText.get(b.id);
+      const edit = editsRef.current[b.id];
+      if (prev === undefined || edit === undefined || edit === prev || b.text === prev || b.text === edit) continue;
+      conflicts.push({ id: b.id, figmaText: b.text, editText: edit });
+    }
+    setFigmaDesign(next);
     setPdfStatus("ready");
+    if (conflicts.length) setResyncConflicts(conflicts);
+  };
+
+  // Drop the CopyDash edit for each block where the user chose Figma's text.
+  const resolveConflicts = async (useFigma: string[]) => {
+    setResyncConflicts(null);
+    if (!useFigma.length) return;
+    setEdits((prev) => {
+      const n = { ...prev };
+      useFigma.forEach((id) => delete n[id]);
+      return n;
+    });
+    const supabase = createClient();
+    const { error } = await supabase.from("design_edits").delete().eq("page_id", page.id).in("block_id", useFigma);
+    if (error) setResyncError("Couldn’t save your choices. Please re-sync again.");
   };
   const commentUser = { id: user.id, name: user.name, role: user.role };
 
@@ -649,6 +687,35 @@ export function DesignEditorScreen({
       <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0 }}>
         {/* Left: the real design */}
         <div ref={paneRef} style={{ flex: 1, minWidth: 320, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0, position: "relative" }}>
+          {resyncError && (
+            <div
+              role="alert"
+              style={{
+                position: "absolute",
+                top: 16,
+                left: "50%",
+                transform: "translateX(-50%)",
+                zIndex: 21,
+                maxWidth: "calc(100% - 32px)",
+                background: "#fef2f2",
+                border: "1px solid #fecaca",
+                color: "#b91c1c",
+                borderRadius: 10,
+                padding: "10px 14px",
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                boxShadow: "0 6px 24px rgba(0,0,0,0.12)",
+              }}
+            >
+              <Icon name="alert-circle" size={14} color="#b91c1c" />
+              <span style={{ fontSize: 13, fontFamily: "var(--font-sans)" }}>Re-sync failed: {resyncError}</span>
+              <button onClick={() => setResyncError(null)} aria-label="Dismiss" style={{ background: "none", border: "none", cursor: "pointer", color: "#b91c1c", padding: 2, display: "flex" }}>
+                <Icon name="x" size={13} />
+              </button>
+            </div>
+          )}
+
           {hint && editable && showDesign && (
             <div
               style={{
@@ -865,6 +932,11 @@ export function DesignEditorScreen({
       <Modal open={fontsOpen} onClose={() => setFontsOpen(false)} title="Design Fonts" width={480}>
         {fontsOpen && <FontsPanel value={designFonts} onSave={saveFonts} onClose={() => setFontsOpen(false)} />}
       </Modal>
+
+      {/* Closing without choosing keeps every CopyDash edit — nothing is lost. */}
+      <Modal open={!!resyncConflicts} onClose={() => resolveConflicts([])} title="Text changed in Figma and CopyDash" width={640}>
+        {resyncConflicts && <ResyncConflictsPanel conflicts={resyncConflicts} labelFor={(id) => fields.find((f) => f.id === id)?.label || "Text"} onResolve={resolveConflicts} />}
+      </Modal>
     </div>
   );
 }
@@ -883,6 +955,83 @@ function WordCount({ text, original }: { text: string; original: string }) {
         {words}/{orig} words
       </span>
       {tooLong && <span>· longer than the original, may not fit the design</span>}
+    </div>
+  );
+}
+
+interface ResyncConflict {
+  id: string;
+  figmaText: string;
+  editText: string;
+}
+
+type ConflictChoice = "copydash" | "figma";
+
+function ResyncConflictsPanel({ conflicts, labelFor, onResolve }: { conflicts: ResyncConflict[]; labelFor: (id: string) => string; onResolve: (useFigma: string[]) => void }) {
+  const [choice, setChoice] = React.useState<Record<string, ConflictChoice>>(() => Object.fromEntries(conflicts.map((c) => [c.id, "copydash"])));
+  const setAll = (v: ConflictChoice) => setChoice(Object.fromEntries(conflicts.map((c) => [c.id, v])));
+  const useFigma = conflicts.filter((c) => choice[c.id] === "figma").map((c) => c.id);
+
+  const option = (c: ResyncConflict, v: ConflictChoice, title: string, text: string) => {
+    const selected = choice[c.id] === v;
+    return (
+      <button
+        type="button"
+        onClick={() => setChoice((p) => ({ ...p, [c.id]: v }))}
+        aria-pressed={selected}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          textAlign: "left",
+          padding: "10px 12px",
+          borderRadius: 8,
+          border: `1px solid ${selected ? "#8e51ff" : "#e4e4e7"}`,
+          background: selected ? "#f5f3ff" : "#fff",
+          boxShadow: selected ? "0 0 0 1px #8e51ff" : "none",
+          cursor: "pointer",
+          display: "flex",
+          flexDirection: "column",
+          gap: 6,
+        }}
+      >
+        <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 600, color: selected ? "#7f22fe" : "#71717b", fontFamily: "var(--font-sans)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          <span style={{ width: 12, height: 12, borderRadius: "50%", border: `1.5px solid ${selected ? "#7f22fe" : "#d4d4d8"}`, background: selected ? "radial-gradient(#7f22fe 0 3px, transparent 3.5px)" : "#fff", flexShrink: 0 }} />
+          {title}
+        </span>
+        <span style={{ fontSize: 13, color: "#09090b", fontFamily: "var(--font-body)", lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{text}</span>
+      </button>
+    );
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <p style={{ margin: 0, fontSize: 13, color: "#71717b", lineHeight: 1.5, fontFamily: "var(--font-body)" }}>
+        {conflicts.length === 1 ? "This text was" : `These ${conflicts.length} texts were`} changed in Figma since the last sync, and also edited here. Choose which version to keep — everything else has been updated from Figma.
+      </p>
+      <div style={{ display: "flex", gap: 8 }}>
+        <Btn variant="outline" size="sm" onClick={() => setAll("copydash")}>
+          Keep all CopyDash edits
+        </Btn>
+        <Btn variant="outline" size="sm" onClick={() => setAll("figma")}>
+          Use all Figma texts
+        </Btn>
+      </div>
+      <div style={{ maxHeight: 380, overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
+        {conflicts.map((c) => (
+          <div key={c.id} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#7f22fe", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "var(--font-sans)", opacity: 0.7 }}>{labelFor(c.id)}</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {option(c, "copydash", "CopyDash edit", c.editText)}
+              {option(c, "figma", "New in Figma", c.figmaText)}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <Btn variant="primary" size="sm" onClick={() => onResolve(useFigma)}>
+          {useFigma.length ? `Apply — use Figma for ${useFigma.length}` : "Keep CopyDash edits"}
+        </Btn>
+      </div>
     </div>
   );
 }
