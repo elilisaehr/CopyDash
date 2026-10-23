@@ -23,7 +23,7 @@ import { EditableBlock } from "@/components/features/editable-block";
 import { mockGenerateFieldSuggestions } from "@/lib/ai-mock";
 import { getPdfjs } from "@/lib/pdf";
 import { createClient } from "@/lib/supabase/client";
-import { renderPdfDesign, type DesignBlock, type RenderedPage, type BlockKind } from "@/lib/pdf-design";
+import { renderPdfDesign, joinLines, legacyLineIdPrefix, type DesignBlock, type RenderedPage, type BlockKind } from "@/lib/pdf-design";
 import { useResizablePanel } from "@/hooks/use-resizable-panel";
 import { ResizeHandle } from "@/components/ui/resize-handle";
 import type { Project, Page, UserRole, FigmaDesign } from "@/lib/supabase/types";
@@ -44,6 +44,9 @@ const DESIGN_AI_MESSAGES = [
 
 // Derive a sensible character budget from the space the design gives the text.
 const blockMaxChars = (b: DesignBlock) => Math.max(24, Math.ceil(b.text.length * 1.35) + 8);
+
+const countWords = (s: string) => s.split(/\s+/).filter(Boolean).length;
+const isParagraph = (b: DesignBlock) => (b.sourceLines?.length || 0) > 1;
 
 type PdfStatus = "loading" | "ready" | "error";
 type AiState = "idle" | "processing" | "done" | "error";
@@ -264,6 +267,40 @@ export function DesignEditorScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [figmaDesign, scale]);
 
+  // Edits saved before paragraph merging (and before block ids stopped
+  // depending on zoom) are keyed per source line. Carry them over onto the
+  // block that now contains that line; the old rows stay in design_edits
+  // until the block is reset, so this re-applies on each load until the
+  // block is edited again (which saves it under its current id).
+  const legacyKeysRef = React.useRef<Record<string, string[]>>({});
+  React.useEffect(() => {
+    if (!editsLoaded || !blocks.length) return;
+    const currentIds = new Set(blocks.map((b) => b.id));
+    setEdits((prev) => {
+      const orphans = Object.keys(prev).filter((k) => !currentIds.has(k));
+      if (!orphans.length) return prev;
+      const consumed = new Set<string>();
+      let next = prev;
+      for (const b of blocks) {
+        if (!b.sourceLines || prev[b.id] !== undefined) continue;
+        const used: string[] = [];
+        const lines = b.sourceLines.map((line) => {
+          const prefix = legacyLineIdPrefix(b.pageIndex, line);
+          const key = orphans.find((k) => !consumed.has(k) && k.startsWith(prefix));
+          if (key === undefined) return line;
+          consumed.add(key);
+          used.push(key);
+          return prev[key];
+        });
+        if (!used.length) continue;
+        legacyKeysRef.current[b.id] = used;
+        const merged = joinLines(lines);
+        if (merged !== b.text) next = { ...next, [b.id]: merged };
+      }
+      return next;
+    });
+  }, [blocks, editsLoaded, setEdits]);
+
   // Scroll the active block into view when picked from the side panel.
   React.useEffect(() => {
     if (!activeId || pdfStatus !== "ready") return;
@@ -304,13 +341,16 @@ export function DesignEditorScreen({
 
   const resetBlock = React.useCallback(
     async (id: string) => {
+      const legacy = legacyKeysRef.current[id] || [];
+      delete legacyKeysRef.current[id];
       setEdits((prev) => {
         const n = { ...prev };
         delete n[id];
+        legacy.forEach((k) => delete n[k]);
         return n;
       });
       const supabase = createClient();
-      await supabase.from("design_edits").delete().eq("page_id", page.id).eq("block_id", id);
+      await supabase.from("design_edits").delete().eq("page_id", page.id).in("block_id", [id, ...legacy]);
     },
     [page.id, setEdits],
   );
@@ -721,6 +761,7 @@ export function DesignEditorScreen({
                     </div>
                   </div>
                   <FieldTextarea value={field.content} onChange={(v) => onChange(b.id, v)} maxLength={field.maxChars} rows={b.kind === "body" || b.kind === "lead" ? 3 : 2} disabled={!editable} />
+                  {isParagraph(b) && <WordCount text={field.content} original={b.text} />}
                   {edited && (
                     <div style={{ marginTop: 8, fontSize: 11, color: "#a1a1aa", fontFamily: "var(--font-body)", display: "flex", gap: 5, alignItems: "baseline" }}>
                       <span style={{ flexShrink: 0 }}>Original:</span>
@@ -758,6 +799,24 @@ export function DesignEditorScreen({
       <Modal open={exportOpen} onClose={() => setExportOpen(false)} title="Export Content" width={480}>
         <ExportPanel fields={fields} onClose={() => setExportOpen(false)} />
       </Modal>
+    </div>
+  );
+}
+
+// Paragraph blocks wrap inside the design's original box, so copy that runs
+// noticeably longer than the original will likely overflow the layout.
+function WordCount({ text, original }: { text: string; original: string }) {
+  const words = countWords(text);
+  const orig = countWords(original);
+  const tooLong = words > orig * 1.15 && words - orig >= 3;
+  const color = tooLong ? "#b45309" : "#a1a1aa";
+  return (
+    <div style={{ marginTop: 8, fontSize: 11, color, fontFamily: "var(--font-body)", display: "flex", gap: 5, alignItems: "center" }}>
+      {tooLong && <Icon name="alert-circle" size={12} color={color} />}
+      <span style={{ fontFamily: "var(--font-mono)" }}>
+        {words}/{orig} words
+      </span>
+      {tooLong && <span>· longer than the original, may not fit the design</span>}
     </div>
   );
 }

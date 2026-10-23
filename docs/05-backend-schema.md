@@ -127,7 +127,7 @@ Unique: `(page_id, field_key)`. Index: `page_id`.
 | content | text | yes | `''` |
 | updated_at | timestamptz | yes | `now()` |
 
-PK: `(page_id, block_id)`. `block_id` is computed client-side from the block's text + position (see `lib/pdf-design.ts: hashStr`) — it is **not stable across a design's content changing** (e.g. the paragraph-merge fix changes how lines group into blocks, which changes `block_id`, which orphans old edits — see Implementation Plan).
+PK: `(page_id, block_id)`. For PDF designs, `block_id` is computed client-side from the block's text + its position at 100% zoom (see `lib/pdf-design.ts: buildBlocks`) — stable across zoom levels and screen widths, but **not stable across a design's content changing**. Rows saved before the paragraph-merge fix are keyed per line (and, back then, per zoom level); the Design Editor carries them over onto the paragraph that now contains that line (matched on page + line-text hash) and deletes them when that block is reset.
 
 ### `figma_connections`
 | Field | Type | Required |
