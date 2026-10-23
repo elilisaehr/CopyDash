@@ -2,6 +2,8 @@
 // If the schema changes, keep this file in sync (or generate it with
 // `supabase gen types typescript` once the project is reachable).
 
+import type { DesignFonts } from "@/lib/design-fonts";
+
 export type UserRole = "pm" | "client";
 export type ProjectStatus = "Draft" | "In Progress" | "Pending Review" | "Completed";
 export type PageStatus = ProjectStatus;
@@ -77,6 +79,8 @@ export interface Page {
   has_pdf_design: boolean;
   design_source: "pdf" | "figma" | null;
   design_seed: string | null;
+  /** PDF designs only — see lib/design-fonts.ts. */
+  design_fonts: DesignFonts | null;
   updated_by_name: string | null;
   archived_at: string | null;
   created_at: string;

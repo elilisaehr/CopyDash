@@ -79,7 +79,7 @@ export function EditableBlock({
         padding: "0 5px",
         display: "block",
         fontSize: block.fontH * 0.96,
-        lineHeight: block.wrap ? 1.3 : `${block.h + 6}px`,
+        lineHeight: block.wrap ? (block.lineHeight ? `${block.lineHeight}px` : 1.3) : `${block.h + 6}px`,
         fontFamily: block.fontFamily ? `${block.fontFamily}, var(--font-sans)` : "var(--font-sans)",
         fontWeight: weight,
         letterSpacing: "-0.01em",

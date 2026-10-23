@@ -15,7 +15,7 @@
 
 import * as React from "react";
 import { Icon } from "@/components/ui/icon";
-import { Btn, FieldTextarea, StatusPicker, Spinner, Modal } from "@/components/ui/primitives";
+import { Btn, FieldTextarea, StatusPicker, Spinner, Modal, SelectInput } from "@/components/ui/primitives";
 import { CommentButton } from "@/components/features/comments";
 import { computeSEO, SEOToggle, SEOPanel } from "@/components/features/seo";
 import { AISuggestButton } from "@/components/features/ai-suggest";
@@ -23,7 +23,8 @@ import { EditableBlock } from "@/components/features/editable-block";
 import { mockGenerateFieldSuggestions } from "@/lib/ai-mock";
 import { getPdfjs } from "@/lib/pdf";
 import { createClient } from "@/lib/supabase/client";
-import { renderPdfDesign, type DesignBlock, type RenderedPage, type BlockKind } from "@/lib/pdf-design";
+import { renderPdfDesign, joinLines, legacyLineIdPrefix, sampleBg, luminance, type DesignBlock, type RenderedPage, type BlockKind } from "@/lib/pdf-design";
+import { FONT_NAMES, cssFamily, fontForKind, useDesignFonts, useFontPreviews, useWebFonts, type DesignFonts } from "@/lib/design-fonts";
 import { useResizablePanel } from "@/hooks/use-resizable-panel";
 import { ResizeHandle } from "@/components/ui/resize-handle";
 import type { Project, Page, UserRole, FigmaDesign } from "@/lib/supabase/types";
@@ -44,6 +45,9 @@ const DESIGN_AI_MESSAGES = [
 
 // Derive a sensible character budget from the space the design gives the text.
 const blockMaxChars = (b: DesignBlock) => Math.max(24, Math.ceil(b.text.length * 1.35) + 8);
+
+const countWords = (s: string) => s.split(/\s+/).filter(Boolean).length;
+const isParagraph = (b: DesignBlock) => (b.sourceLines?.length || 0) > 1;
 
 type PdfStatus = "loading" | "ready" | "error";
 type AiState = "idle" | "processing" | "done" | "error";
@@ -103,6 +107,13 @@ export function DesignEditorScreen({
   const [saveStatus, setSaveStatus] = React.useState<"idle" | "saving" | "saved">("idle");
   const [pageStatus, setPageStatus] = React.useState<string>(page.status);
   const [exportOpen, setExportOpen] = React.useState(false);
+  const [fontsOpen, setFontsOpen] = React.useState(false);
+  const [resyncError, setResyncError] = React.useState<string | null>(null);
+  const [resyncConflicts, setResyncConflicts] = React.useState<ResyncConflict[] | null>(null);
+  const [designFonts, setDesignFonts] = React.useState<DesignFonts | null>(page.design_fonts ?? null);
+  useDesignFonts(designFonts);
+  const [figmaFonts, setFigmaFonts] = React.useState<string[]>([]);
+  useWebFonts(figmaFonts);
   const [seoOpen, setSeoOpen] = React.useState(false);
   const [aiState, setAiState] = React.useState<AiState>("idle");
   const [aiProgress, setAiProgress] = React.useState(0);
@@ -222,6 +233,37 @@ export function DesignEditorScreen({
     };
   }, [page.id, page.design_source]);
 
+  // Background colour behind each Figma text block, sampled from the
+  // rendered frame PNG (Figma's image host allows CORS reads) so an edited
+  // block lifts onto its real background instead of a white pill.
+  const [figmaBg, setFigmaBg] = React.useState<Record<string, [number, number, number]>>({});
+  React.useEffect(() => {
+    if (!figmaDesign) return;
+    let cancelled = false;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      if (cancelled) return;
+      const canvas = document.createElement("canvas");
+      canvas.width = figmaDesign.width;
+      canvas.height = figmaDesign.height;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      try {
+        const out: Record<string, [number, number, number]> = {};
+        for (const b of figmaDesign.blocks) out[b.id] = sampleBg(ctx, b.x, b.y, b.w, b.h);
+        setFigmaBg(out);
+      } catch (e) {
+        console.warn("Figma background sampling failed", e);
+      }
+    };
+    img.src = figmaDesign.image_url;
+    return () => {
+      cancelled = true;
+    };
+  }, [figmaDesign]);
+
   // Re-derive the renderer-agnostic `pages`/`blocks` state from the Figma
   // design whenever it loads or the zoom scale changes — mirrors the PDF
   // effect above, just without needing to re-render anything (Figma's
@@ -229,23 +271,28 @@ export function DesignEditorScreen({
   React.useEffect(() => {
     if (!figmaDesign) return;
     const s = scale;
-    const scaledBlocks: DesignBlock[] = figmaDesign.blocks.map((b) => ({
-      id: b.id,
-      pageIndex: 0,
-      x: b.x * s,
-      top: b.y * s,
-      w: b.w * s,
-      h: b.h * s,
-      fontH: b.fontSize * s,
-      text: b.text,
-      bg: [255, 255, 255],
-      dark: false,
-      kind: b.fontSize >= 30 ? "heading" : b.fontSize >= 22 ? "subhead" : b.fontSize >= 17 ? "lead" : "body",
-      color: b.color,
-      textAlign: b.textAlign,
-      wrap: true,
-      fontFamily: b.fontFamily || undefined,
-    }));
+    const scaledBlocks: DesignBlock[] = figmaDesign.blocks.map((b) => {
+      const bg = figmaBg[b.id] || [255, 255, 255];
+      return {
+        id: b.id,
+        pageIndex: 0,
+        x: b.x * s,
+        top: b.y * s,
+        w: b.w * s,
+        h: b.h * s,
+        fontH: b.fontSize * s,
+        text: b.text,
+        bg,
+        dark: luminance(bg) < 0.5,
+        kind: b.fontSize >= 30 ? "heading" : b.fontSize >= 22 ? "subhead" : b.fontSize >= 17 ? "lead" : "body",
+        color: b.color,
+        weight: b.fontWeight,
+        textAlign: b.textAlign,
+        wrap: true,
+        lineHeight: b.lineHeight ? b.lineHeight * s : undefined,
+        fontFamily: b.fontFamily ? cssFamily(b.fontFamily) : undefined,
+      };
+    });
     // Deriving pages/blocks synchronously from already-fetched figmaDesign
     // state — no external I/O to defer past a microtask, unlike the async
     // fetch effects above.
@@ -260,9 +307,44 @@ export function DesignEditorScreen({
       },
     ]);
     setBlocks(scaledBlocks);
+    setFigmaFonts([...new Set(figmaDesign.blocks.map((b) => b.fontFamily).filter((f): f is string => !!f))]);
     handleNaturalWidth(figmaDesign.width);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [figmaDesign, scale]);
+  }, [figmaDesign, figmaBg, scale]);
+
+  // Edits saved before paragraph merging (and before block ids stopped
+  // depending on zoom) are keyed per source line. Carry them over onto the
+  // block that now contains that line; the old rows stay in design_edits
+  // until the block is reset, so this re-applies on each load until the
+  // block is edited again (which saves it under its current id).
+  const legacyKeysRef = React.useRef<Record<string, string[]>>({});
+  React.useEffect(() => {
+    if (!editsLoaded || !blocks.length) return;
+    const currentIds = new Set(blocks.map((b) => b.id));
+    setEdits((prev) => {
+      const orphans = Object.keys(prev).filter((k) => !currentIds.has(k));
+      if (!orphans.length) return prev;
+      const consumed = new Set<string>();
+      let next = prev;
+      for (const b of blocks) {
+        if (!b.sourceLines || prev[b.id] !== undefined) continue;
+        const used: string[] = [];
+        const lines = b.sourceLines.map((line) => {
+          const prefix = legacyLineIdPrefix(b.pageIndex, line);
+          const key = orphans.find((k) => !consumed.has(k) && k.startsWith(prefix));
+          if (key === undefined) return line;
+          consumed.add(key);
+          used.push(key);
+          return prev[key];
+        });
+        if (!used.length) continue;
+        legacyKeysRef.current[b.id] = used;
+        const merged = joinLines(lines);
+        if (merged !== b.text) next = { ...next, [b.id]: merged };
+      }
+      return next;
+    });
+  }, [blocks, editsLoaded, setEdits]);
 
   // Scroll the active block into view when picked from the side panel.
   React.useEffect(() => {
@@ -304,13 +386,16 @@ export function DesignEditorScreen({
 
   const resetBlock = React.useCallback(
     async (id: string) => {
+      const legacy = legacyKeysRef.current[id] || [];
+      delete legacyKeysRef.current[id];
       setEdits((prev) => {
         const n = { ...prev };
         delete n[id];
+        legacy.forEach((k) => delete n[k]);
         return n;
       });
       const supabase = createClient();
-      await supabase.from("design_edits").delete().eq("page_id", page.id).eq("block_id", id);
+      await supabase.from("design_edits").delete().eq("page_id", page.id).in("block_id", [id, ...legacy]);
     },
     [page.id, setEdits],
   );
@@ -415,23 +500,73 @@ export function DesignEditorScreen({
 
   const showDesign = !!pdfPath || !!figmaDesign;
 
+  const saveFonts = async (next: DesignFonts) => {
+    const supabase = createClient();
+    const { error } = await supabase.from("pages").update({ design_fonts: next }).eq("id", page.id);
+    if (error) throw error;
+    setDesignFonts(next);
+  };
+
+  // PDF designs carry no usable font, so edited copy uses the fonts the PM
+  // picked for the page (Figma blocks already know their real font).
+  const withDesignFont = (b: DesignBlock): DesignBlock => {
+    const font = figmaDesign ? null : fontForKind(designFonts, b.kind);
+    return font ? { ...b, fontFamily: cssFamily(font) } : b;
+  };
+
   const handleResyncFigma = async () => {
     if (!figmaDesign) return;
+    const before = figmaDesign;
+    setResyncError(null);
     setPdfStatus("loading");
-    const fakeUrl = `https://www.figma.com/design/${figmaDesign.file_key}/resync?node-id=${figmaDesign.node_id.replace(":", "-")}`;
+    const fakeUrl = `https://www.figma.com/design/${before.file_key}/resync?node-id=${before.node_id.replace(/:/g, "-")}`;
     const res = await fetch("/api/figma/import", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ pageId: page.id, figmaUrl: fakeUrl }),
     });
     if (!res.ok) {
-      setPdfStatus("error");
+      // The previously imported design is still valid — keep showing it.
+      const body = await res.json().catch(() => ({}));
+      setResyncError(body.error || `Re-sync failed (${res.status}).`);
+      setPdfStatus("ready");
       return;
     }
     const supabase = createClient();
     const { data } = await supabase.from("figma_designs").select("*").eq("page_id", page.id).maybeSingle();
-    setFigmaDesign(data as unknown as FigmaDesign);
+    if (!data) {
+      setResyncError("Re-sync finished but the design couldn’t be reloaded. Refresh the page.");
+      setPdfStatus("ready");
+      return;
+    }
+    const next = data as unknown as FigmaDesign;
+    // A conflict: the text changed in Figma AND was edited in CopyDash to
+    // something else. Those need a decision; everything else just updates.
+    const prevText = new Map(before.blocks.map((b) => [b.id, b.text]));
+    const conflicts: ResyncConflict[] = [];
+    for (const b of next.blocks) {
+      const prev = prevText.get(b.id);
+      const edit = editsRef.current[b.id];
+      if (prev === undefined || edit === undefined || edit === prev || b.text === prev || b.text === edit) continue;
+      conflicts.push({ id: b.id, figmaText: b.text, editText: edit });
+    }
+    setFigmaDesign(next);
     setPdfStatus("ready");
+    if (conflicts.length) setResyncConflicts(conflicts);
+  };
+
+  // Drop the CopyDash edit for each block where the user chose Figma's text.
+  const resolveConflicts = async (useFigma: string[]) => {
+    setResyncConflicts(null);
+    if (!useFigma.length) return;
+    setEdits((prev) => {
+      const n = { ...prev };
+      useFigma.forEach((id) => delete n[id]);
+      return n;
+    });
+    const supabase = createClient();
+    const { error } = await supabase.from("design_edits").delete().eq("page_id", page.id).in("block_id", useFigma);
+    if (error) setResyncError("Couldn’t save your choices. Please re-sync again.");
   };
   const commentUser = { id: user.id, name: user.name, role: user.role };
 
@@ -494,6 +629,11 @@ export function DesignEditorScreen({
                 </Btn>
               ) : (
                 <>
+                  {pdfPath && (
+                    <Btn variant="outline" size="sm" icon="type" onClick={() => setFontsOpen(true)}>
+                      Fonts
+                    </Btn>
+                  )}
                   <input ref={fileRef} type="file" accept=".pdf,application/pdf" style={{ display: "none" }} onChange={(e) => handleReplace(e.target.files?.[0] || null)} />
                   <Btn variant="outline" size="sm" icon="upload" onClick={() => fileRef.current?.click()}>
                     Replace
@@ -547,6 +687,35 @@ export function DesignEditorScreen({
       <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0 }}>
         {/* Left: the real design */}
         <div ref={paneRef} style={{ flex: 1, minWidth: 320, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0, position: "relative" }}>
+          {resyncError && (
+            <div
+              role="alert"
+              style={{
+                position: "absolute",
+                top: 16,
+                left: "50%",
+                transform: "translateX(-50%)",
+                zIndex: 21,
+                maxWidth: "calc(100% - 32px)",
+                background: "#fef2f2",
+                border: "1px solid #fecaca",
+                color: "#b91c1c",
+                borderRadius: 10,
+                padding: "10px 14px",
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                boxShadow: "0 6px 24px rgba(0,0,0,0.12)",
+              }}
+            >
+              <Icon name="alert-circle" size={14} color="#b91c1c" />
+              <span style={{ fontSize: 13, fontFamily: "var(--font-sans)" }}>Re-sync failed: {resyncError}</span>
+              <button onClick={() => setResyncError(null)} aria-label="Dismiss" style={{ background: "none", border: "none", cursor: "pointer", color: "#b91c1c", padding: 2, display: "flex" }}>
+                <Icon name="x" size={13} />
+              </button>
+            </div>
+          )}
+
           {hint && editable && showDesign && (
             <div
               style={{
@@ -598,11 +767,11 @@ export function DesignEditorScreen({
                     style={{ position: "relative", width: pg.w, height: pg.h, background: "#fff", borderRadius: 6, overflow: "hidden", boxShadow: "0 4px 30px rgba(0,0,0,0.14)", flexShrink: 0 }}
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={pg.url} width={pg.w} height={pg.h} draggable={false} style={{ display: "block", userSelect: "none" }} alt="" />
+                    <img src={pg.url} crossOrigin="anonymous" width={pg.w} height={pg.h} draggable={false} style={{ display: "block", userSelect: "none" }} alt="" />
                     {pg.blocks.map((b) => (
                       <EditableBlock
                         key={b.id}
-                        block={b}
+                        block={withDesignFont(b)}
                         value={editsLoaded ? edits[b.id] : b.text}
                         onChange={onChange}
                         onCommit={persistBlock}
@@ -721,6 +890,7 @@ export function DesignEditorScreen({
                     </div>
                   </div>
                   <FieldTextarea value={field.content} onChange={(v) => onChange(b.id, v)} maxLength={field.maxChars} rows={b.kind === "body" || b.kind === "lead" ? 3 : 2} disabled={!editable} />
+                  {isParagraph(b) && <WordCount text={field.content} original={b.text} />}
                   {edited && (
                     <div style={{ marginTop: 8, fontSize: 11, color: "#a1a1aa", fontFamily: "var(--font-body)", display: "flex", gap: 5, alignItems: "baseline" }}>
                       <span style={{ flexShrink: 0 }}>Original:</span>
@@ -758,6 +928,181 @@ export function DesignEditorScreen({
       <Modal open={exportOpen} onClose={() => setExportOpen(false)} title="Export Content" width={480}>
         <ExportPanel fields={fields} onClose={() => setExportOpen(false)} />
       </Modal>
+
+      <Modal open={fontsOpen} onClose={() => setFontsOpen(false)} title="Design Fonts" width={480}>
+        {fontsOpen && <FontsPanel value={designFonts} onSave={saveFonts} onClose={() => setFontsOpen(false)} />}
+      </Modal>
+
+      {/* Closing without choosing keeps every CopyDash edit — nothing is lost. */}
+      <Modal open={!!resyncConflicts} onClose={() => resolveConflicts([])} title="Text changed in Figma and CopyDash" width={640}>
+        {resyncConflicts && <ResyncConflictsPanel conflicts={resyncConflicts} labelFor={(id) => fields.find((f) => f.id === id)?.label || "Text"} onResolve={resolveConflicts} />}
+      </Modal>
+    </div>
+  );
+}
+
+// Paragraph blocks wrap inside the design's original box, so copy that runs
+// noticeably longer than the original will likely overflow the layout.
+function WordCount({ text, original }: { text: string; original: string }) {
+  const words = countWords(text);
+  const orig = countWords(original);
+  const tooLong = words > orig * 1.15 && words - orig >= 3;
+  const color = tooLong ? "#b45309" : "#a1a1aa";
+  return (
+    <div style={{ marginTop: 8, fontSize: 11, color, fontFamily: "var(--font-body)", display: "flex", gap: 5, alignItems: "center" }}>
+      {tooLong && <Icon name="alert-circle" size={12} color={color} />}
+      <span style={{ fontFamily: "var(--font-mono)" }}>
+        {words}/{orig} words
+      </span>
+      {tooLong && <span>· longer than the original, may not fit the design</span>}
+    </div>
+  );
+}
+
+interface ResyncConflict {
+  id: string;
+  figmaText: string;
+  editText: string;
+}
+
+type ConflictChoice = "copydash" | "figma";
+
+function ResyncConflictsPanel({ conflicts, labelFor, onResolve }: { conflicts: ResyncConflict[]; labelFor: (id: string) => string; onResolve: (useFigma: string[]) => void }) {
+  const [choice, setChoice] = React.useState<Record<string, ConflictChoice>>(() => Object.fromEntries(conflicts.map((c) => [c.id, "copydash"])));
+  const setAll = (v: ConflictChoice) => setChoice(Object.fromEntries(conflicts.map((c) => [c.id, v])));
+  const useFigma = conflicts.filter((c) => choice[c.id] === "figma").map((c) => c.id);
+
+  const option = (c: ResyncConflict, v: ConflictChoice, title: string, text: string) => {
+    const selected = choice[c.id] === v;
+    return (
+      <button
+        type="button"
+        onClick={() => setChoice((p) => ({ ...p, [c.id]: v }))}
+        aria-pressed={selected}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          textAlign: "left",
+          padding: "10px 12px",
+          borderRadius: 8,
+          border: `1px solid ${selected ? "#8e51ff" : "#e4e4e7"}`,
+          background: selected ? "#f5f3ff" : "#fff",
+          boxShadow: selected ? "0 0 0 1px #8e51ff" : "none",
+          cursor: "pointer",
+          display: "flex",
+          flexDirection: "column",
+          gap: 6,
+        }}
+      >
+        <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 600, color: selected ? "#7f22fe" : "#71717b", fontFamily: "var(--font-sans)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          <span style={{ width: 12, height: 12, borderRadius: "50%", border: `1.5px solid ${selected ? "#7f22fe" : "#d4d4d8"}`, background: selected ? "radial-gradient(#7f22fe 0 3px, transparent 3.5px)" : "#fff", flexShrink: 0 }} />
+          {title}
+        </span>
+        <span style={{ fontSize: 13, color: "#09090b", fontFamily: "var(--font-body)", lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{text}</span>
+      </button>
+    );
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <p style={{ margin: 0, fontSize: 13, color: "#71717b", lineHeight: 1.5, fontFamily: "var(--font-body)" }}>
+        {conflicts.length === 1 ? "This text was" : `These ${conflicts.length} texts were`} changed in Figma since the last sync, and also edited here. Choose which version to keep — everything else has been updated from Figma.
+      </p>
+      <div style={{ display: "flex", gap: 8 }}>
+        <Btn variant="outline" size="sm" onClick={() => setAll("copydash")}>
+          Keep all CopyDash edits
+        </Btn>
+        <Btn variant="outline" size="sm" onClick={() => setAll("figma")}>
+          Use all Figma texts
+        </Btn>
+      </div>
+      <div style={{ maxHeight: 380, overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
+        {conflicts.map((c) => (
+          <div key={c.id} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#7f22fe", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "var(--font-sans)", opacity: 0.7 }}>{labelFor(c.id)}</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {option(c, "copydash", "CopyDash edit", c.editText)}
+              {option(c, "figma", "New in Figma", c.figmaText)}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <Btn variant="primary" size="sm" onClick={() => onResolve(useFigma)}>
+          {useFigma.length ? `Apply — use Figma for ${useFigma.length}` : "Keep CopyDash edits"}
+        </Btn>
+      </div>
+    </div>
+  );
+}
+
+const FONT_OPTIONS = FONT_NAMES.map((n) => ({ value: n, label: n }));
+
+const FONT_SLOTS = [
+  { key: "heading", label: "Headings", sample: "Your headline, in place", size: 20, weight: 700 },
+  { key: "body", label: "Body text", sample: "Body copy preview — the quick brown fox jumps over the lazy dog.", size: 14, weight: 400 },
+] as const;
+
+function FontsPanel({ value, onSave, onClose }: { value: DesignFonts | null; onSave: (next: DesignFonts) => Promise<void>; onClose: () => void }) {
+  useFontPreviews(true);
+  const [draft, setDraft] = React.useState<DesignFonts>(value || {});
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(draft);
+      onClose();
+    } catch (e) {
+      console.warn("Saving design fonts failed", e);
+      setError("Couldn’t save the fonts. Please try again.");
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      <p style={{ margin: 0, fontSize: 13, color: "#71717b", lineHeight: 1.5, fontFamily: "var(--font-body)" }}>
+        PDFs don&apos;t tell us which fonts they use, so edited text falls back to a default font. Pick the design&apos;s fonts so edits match the page — everyone editing this page will see them.
+      </p>
+      {FONT_SLOTS.map((slot) => {
+        const font = draft[slot.key];
+        return (
+          <div key={slot.key} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <SelectInput label={slot.label} value={font || ""} onChange={(v) => setDraft((d) => ({ ...d, [slot.key]: v || null }))} options={FONT_OPTIONS} placeholder="Default font" />
+            <div
+              style={{
+                padding: "10px 12px",
+                borderRadius: 8,
+                border: "1px solid #f0f0f0",
+                background: "#fafafa",
+                color: "#09090b",
+                fontSize: slot.size,
+                fontWeight: slot.weight,
+                lineHeight: 1.35,
+                fontFamily: font ? `${cssFamily(font)}, var(--font-sans)` : "var(--font-sans)",
+              }}
+            >
+              {slot.sample}
+            </div>
+          </div>
+        );
+      })}
+      {error && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#b91c1c", fontFamily: "var(--font-sans)" }}>
+          <Icon name="alert-circle" size={13} color="#b91c1c" /> {error}
+        </div>
+      )}
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        <Btn variant="ghost" size="sm" onClick={onClose}>
+          Cancel
+        </Btn>
+        <Btn variant="primary" size="sm" onClick={save} disabled={saving}>
+          {saving ? "Saving…" : "Save fonts"}
+        </Btn>
+      </div>
     </div>
   );
 }

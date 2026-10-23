@@ -57,6 +57,7 @@ interface FigmaNode {
   name: string;
   type: string;
   absoluteBoundingBox?: { x: number; y: number; width: number; height: number };
+  absoluteRenderBounds?: { x: number; y: number; width: number; height: number } | null;
   characters?: string;
   style?: {
     fontFamily?: string;
@@ -115,7 +116,11 @@ export async function importFigmaFrame(
   const entry = nodesData.nodes?.[nodeId];
   if (!entry?.document) return { error: "Ce lien Figma ne pointe vers aucun cadre valide." };
   const frame: FigmaNode = entry.document;
-  const box = frame.absoluteBoundingBox;
+  // The rendered PNG covers the frame's render bounds, which go past its
+  // bounding box when content overflows (e.g. a 1920×1200 scrolling page
+  // frame whose content runs to 5000px+). Use them so the image isn't
+  // squashed into the frame's size and blocks line up with it.
+  const box = frame.absoluteRenderBounds || frame.absoluteBoundingBox;
   if (!box) return { error: "Ce nœud Figma n'a pas de dimensions — sélectionnez un cadre (frame)." };
 
   // `scale` here only controls the PIXEL DENSITY of the rendered PNG (like

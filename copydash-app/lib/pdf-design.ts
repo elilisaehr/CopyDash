@@ -3,9 +3,11 @@
 // Ported as closely as possible from the prototype
 // (project/copydash/pdfdesign.jsx: sampleBg/readPixel/median/luminance/hashStr,
 // buildBlocks). This is pure geometry over a rendered pdf.js page canvas:
-// it groups text items into line-blocks by baseline proximity, splits each
-// line into separate blocks wherever there's a wide horizontal gap (e.g. a
-// logo vs. nav links, or feature columns on one row), and samples the
+// it groups text items into lines by baseline proximity, splits each
+// line into separate segments wherever there's a wide horizontal gap (e.g. a
+// logo vs. nav links, or feature columns on one row), merges vertically
+// stacked segments with the same font and a regular line pitch into one
+// paragraph block (so a multi-line paragraph edits as one unit), and samples the
 // background colour behind each block by reading canvas pixels at its
 // margins — so the editable overlay can render text transparently by
 // default and only "lift" to an opaque, colour-matched pill when edited.
@@ -62,10 +64,18 @@ export interface DesignBlock {
   textAlign?: "left" | "center" | "right" | "justify";
   /** When true, EditableBlock wraps text within the block's original width
    * (growing downward for extra lines) instead of growing sideways on a
-   * single line. Figma text nodes are commonly multi-line paragraphs, so
-   * the Figma import path sets this; the PDF path's per-line-grouped
-   * blocks keep the original single-line behavior. */
+   * single line. Set by the Figma import path and by the PDF path for
+   * merged multi-line paragraphs; single-line PDF blocks keep the original
+   * single-line behavior. */
   wrap?: boolean;
+  /** Line pitch in px measured from the source design (PDF paragraphs), so
+   * wrapped text keeps the design's own line spacing. */
+  lineHeight?: number;
+  /** PDF path only: the original text of each source line this block was
+   * merged from (one entry for a single-line block). Used to detect
+   * paragraph blocks and to carry over edits saved before paragraph merging
+   * existed, when edits were keyed per line. */
+  sourceLines?: string[];
   /** Original font family read from the source design (PDF embedded font
    * name, or Figma's node style.fontFamily). EditableBlock uses this so
    * edited text keeps rendering in the design's own typeface instead of
@@ -116,6 +126,72 @@ export const sampleBg = (ctx: CanvasRenderingContext2D, x: number, y: number, w:
   return [median(cols.map((c) => c[0])), median(cols.map((c) => c[1])), median(cols.map((c) => c[2]))];
 };
 
+/**
+ * Reads the rendered glyphs inside a text block: pixels far from the
+ * background are ink. Returns the text colour (median of the solid stroke
+ * cores, skipping anti-aliased edges), the share of the block's area the
+ * ink covers (very high means the background was misread), and the median
+ * horizontal ink run in px — roughly the stem thickness, which tracks
+ * stroke weight independently of text length.
+ * Null when nothing stands out from the background.
+ */
+export const sampleInk = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  bg: [number, number, number],
+): { color: [number, number, number]; coverage: number; stem: number } | null => {
+  const x0 = Math.max(0, Math.floor(x));
+  const y0 = Math.max(0, Math.floor(y));
+  const x1 = Math.min(ctx.canvas.width, Math.ceil(x + w));
+  const y1 = Math.min(ctx.canvas.height, Math.ceil(y + h));
+  if (x1 - x0 < 2 || y1 - y0 < 2) return null;
+  const d = ctx.getImageData(x0, y0, x1 - x0, y1 - y0).data;
+  const n = d.length / 4;
+  const dist = new Float32Array(n);
+  let max = 0;
+  for (let i = 0; i < n; i++) {
+    const dr = d[i * 4] - bg[0];
+    const dg = d[i * 4 + 1] - bg[1];
+    const db = d[i * 4 + 2] - bg[2];
+    dist[i] = Math.sqrt(dr * dr + dg * dg + db * db);
+    if (dist[i] > max) max = dist[i];
+  }
+  if (max < 60) return null;
+  const r: number[] = [];
+  const g: number[] = [];
+  const b: number[] = [];
+  // A run's thickness sums each pixel's ink fraction, so anti-aliased edges
+  // count partially and the result is sub-pixel (stable across zoom levels).
+  const runs: number[] = [];
+  const rowW = x1 - x0;
+  let ink = 0;
+  let run = 0;
+  for (let i = 0; i < n; i++) {
+    const t = dist[i] / max;
+    if (t > 0.5) ink++;
+    if (t >= 0.8) {
+      r.push(d[i * 4]);
+      g.push(d[i * 4 + 1]);
+      b.push(d[i * 4 + 2]);
+    }
+    const inRun = t > 0.15;
+    if (inRun) run += t;
+    if (run && (!inRun || (i + 1) % rowW === 0)) {
+      runs.push(run);
+      run = 0;
+    }
+  }
+  return { color: [median(r), median(g), median(b)], coverage: ink / n, stem: median(runs) };
+};
+
+// Stem thickness as a share of the type size → CSS font weight. Calibrated
+// on a real Figma export (Open Sans–like faces): regular ≈ 0.08,
+// semibold ≈ 0.12, bold ≈ 0.15, extra-bold ≈ 0.17.
+const stemWeight = (ratio: number) => (ratio < 0.097 ? 400 : ratio < 0.133 ? 600 : ratio < 0.16 ? 700 : 800);
+
 interface RawItem {
   x: number;
   baseline: number;
@@ -130,11 +206,79 @@ interface Line {
   baseline: number;
 }
 
+// One horizontal run of text on a single line (a line split at wide gaps).
+interface Segment {
+  x: number;
+  right: number;
+  baseline: number;
+  fontH: number;
+  text: string;
+  fontFamily?: string;
+}
+
+interface Paragraph {
+  segs: Segment[];
+  /** Baseline-to-baseline distance, fixed by the first two lines. */
+  pitch?: number;
+}
+
+const joinText = (parts: string[]) => parts.join(" ").replace(/\s+/g, " ").trim();
+
+const toSegment = (group: RawItem[]): Segment | null => {
+  const text = joinText(group.map((o) => o.text));
+  if (!text) return null;
+  return {
+    x: Math.min(...group.map((o) => o.x)),
+    right: Math.max(...group.map((o) => o.x + o.w)),
+    baseline: Math.max(...group.map((o) => o.baseline)),
+    fontH: Math.max(...group.map((o) => o.fontH)),
+    text,
+    fontFamily: group[0].fontFamily,
+  };
+};
+
+// A line starting with a bullet or "1." / "a)" is its own list item, never
+// the continuation of the paragraph above.
+const LIST_ITEM = /^([•●▪◦·‣–—*-]|\d{1,3}[.)]|[a-zA-Z][.)])\s/;
+
+// Does segment `b` continue paragraph `p` (whose current last line is `a`)?
+function continuesParagraph(p: Paragraph, a: Segment, b: Segment): boolean {
+  if (LIST_ITEM.test(b.text)) return false;
+  // Same type size. The embedded font name isn't compared: exporters split
+  // one typeface into several font subsets, so two lines of the same title
+  // can carry different font names (seen on a real Figma/browser export).
+  if (Math.abs(a.fontH - b.fontH) > Math.max(a.fontH, b.fontH) * 0.12) return false;
+  // Directly below, at normal line spacing — a wider gap is a paragraph break.
+  const gap = b.baseline - a.baseline;
+  if (gap < a.fontH * 0.9 || gap > a.fontH * 1.9) return false;
+  if (p.pitch !== undefined && Math.abs(gap - p.pitch) > p.pitch * 0.2) return false;
+  // Horizontally stacked (same column), not side by side.
+  const overlap = Math.min(a.right, b.right) - Math.max(a.x, b.x);
+  return overlap >= 0.5 * Math.min(a.right - a.x, b.right - b.x);
+}
+
+// Join paragraph lines; a line ending in a hyphen continues the word.
+export const joinLines = (lines: string[]) =>
+  lines.reduce((acc, line) => (/\p{L}-$/u.test(acc) ? acc + line : `${acc} ${line}`)).replace(/\s+/g, " ").trim();
+
+// Infer alignment from how the lines' edges line up (left is the default).
+function detectAlign(segs: Segment[], fontH: number): DesignBlock["textAlign"] {
+  if (segs.length < 2) return undefined;
+  const spread = (vals: number[]) => Math.max(...vals) - Math.min(...vals);
+  const tol = fontH * 0.5;
+  const lefts = spread(segs.map((s) => s.x));
+  if (lefts <= tol) return undefined;
+  if (spread(segs.map((s) => s.right)) <= tol) return "right";
+  if (spread(segs.map((s) => (s.x + s.right) / 2)) <= tol) return "center";
+  return undefined;
+}
+
 // pdf.js's Util.transform is a static matrix helper — passed in so this
 // module doesn't need to import the whole pdfjs-dist package.
 export type MatrixTransformFn = (m1: number[], m2: number[]) => number[];
 
-// Group PDF text items into editable line-blocks.
+// Group PDF text items into editable blocks: one per paragraph (or per
+// standalone line — headings, nav items, buttons).
 export function buildBlocks(
   items: (PdfTextItem | { str?: undefined })[],
   styles: Record<string, PdfTextStyle>,
@@ -173,25 +317,73 @@ export function buildBlocks(
     L.baseline = (L.baseline + r.baseline) / 2;
   }
 
-  // Split each line into blocks wherever there's a wide horizontal gap
-  // (e.g. logo vs. nav links, or three feature columns on one row).
+  // Split each line into segments wherever there's a wide horizontal gap
+  // (e.g. logo vs. nav links, or three feature columns on one row). Two
+  // ems is well above any word space, even in justified text, and below a
+  // typical column gutter.
+  const segments: Segment[] = [];
+  const pushSegment = (group: RawItem[]) => {
+    const s = toSegment(group);
+    if (s) segments.push(s);
+  };
+  for (const L of lines) {
+    const its = L.items.sort((a, b) => a.x - b.x);
+    let group: RawItem[] = [its[0]];
+    for (let i = 1; i < its.length; i++) {
+      const prev = group[group.length - 1];
+      const gap = its[i].x - (prev.x + prev.w);
+      if (gap > Math.max(16 * scale, prev.fontH * 2)) {
+        pushSegment(group);
+        group = [its[i]];
+      } else group.push(its[i]);
+    }
+    pushSegment(group);
+  }
+  segments.sort((a, b) => a.baseline - b.baseline || a.x - b.x);
+
+  // Merge vertically stacked segments into paragraphs, top to bottom. Each
+  // segment joins the paragraph whose last line sits closest above it.
+  const paragraphs: Paragraph[] = [];
+  for (const s of segments) {
+    let best: Paragraph | null = null;
+    let bestGap = Infinity;
+    for (const p of paragraphs) {
+      const last = p.segs[p.segs.length - 1];
+      if (!continuesParagraph(p, last, s)) continue;
+      const gap = s.baseline - last.baseline;
+      if (gap < bestGap) {
+        best = p;
+        bestGap = gap;
+      }
+    }
+    if (best) {
+      best.pitch ??= bestGap;
+      best.segs.push(s);
+    } else paragraphs.push({ segs: [s] });
+  }
+
   const blocks: DesignBlock[] = [];
-  const makeBlock = (group: RawItem[]) => {
-    const fontH = Math.max(...group.map((o) => o.fontH));
-    const x = Math.min(...group.map((o) => o.x));
-    const right = Math.max(...group.map((o) => o.x + o.w));
-    const baseline = Math.max(...group.map((o) => o.baseline));
-    const top = baseline - fontH;
-    const h = fontH * 1.22;
-    const text = group
-      .map((o) => o.text)
-      .join(" ")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (!text) return;
+  for (const { segs, pitch } of paragraphs) {
+    const first = segs[0];
+    const last = segs[segs.length - 1];
+    const multi = segs.length > 1;
+    const fontH = Math.max(...segs.map((s) => s.fontH));
+    const x = Math.min(...segs.map((s) => s.x));
+    const right = Math.max(...segs.map((s) => s.right));
+    const top = first.baseline - fontH;
+    const h = last.baseline - first.baseline + fontH * 1.22;
+    const sourceLines = segs.map((s) => s.text);
+    const text = multi ? joinLines(sourceLines) : first.text;
     const bg = sampleBg(ctx, x, top, right - x, h);
+    // Ink covering over half the box means the background was misread (text
+    // on a pill or photo) — keep EditableBlock's dark/light fallbacks then.
+    const sampled = sampleInk(ctx, x, top, right - x, h, bg);
+    const ink = sampled && sampled.coverage < 0.5 ? sampled : null;
+    const size = fontH / scale; // type size at 100% zoom
     blocks.push({
-      id: `p${pageIndex}-${hashStr(text)}-${Math.round(top / 8)}`,
+      // Position is measured at scale 1 so the id (and the saved edit keyed
+      // by it) is the same at every zoom level and screen width.
+      id: `p${pageIndex}-${hashStr(text)}-${Math.round(top / scale / 8)}`,
       pageIndex,
       x,
       top,
@@ -201,25 +393,22 @@ export function buildBlocks(
       text,
       bg,
       dark: luminance(bg) < 0.5,
-      kind: fontH >= 30 ? "heading" : fontH >= 22 ? "subhead" : fontH >= 17 ? "lead" : "body",
-      fontFamily: group[0].fontFamily,
+      kind: size >= 30 ? "heading" : size >= 22 ? "subhead" : size >= 17 ? "lead" : "body",
+      fontFamily: first.fontFamily,
+      color: ink ? `rgb(${ink.color.join(",")})` : undefined,
+      weight: ink ? stemWeight(ink.stem / fontH) : undefined,
+      wrap: multi || undefined,
+      lineHeight: multi ? pitch : undefined,
+      textAlign: detectAlign(segs, fontH),
+      sourceLines,
     });
-  };
-  for (const L of lines) {
-    const its = L.items.sort((a, b) => a.x - b.x);
-    let group: RawItem[] = [its[0]];
-    for (let i = 1; i < its.length; i++) {
-      const prev = group[group.length - 1];
-      const gap = its[i].x - (prev.x + prev.w);
-      if (gap > Math.max(60, prev.fontH * 4)) {
-        makeBlock(group);
-        group = [its[i]];
-      } else group.push(its[i]);
-    }
-    makeBlock(group);
   }
   return blocks;
 }
+
+/** Prefix shared by every id the pre-paragraph-merge (per-line) algorithm
+ * could have given this line, whatever the zoom level was back then. */
+export const legacyLineIdPrefix = (pageIndex: number, line: string) => `p${pageIndex}-${hashStr(line)}-`;
 
 export interface RenderedPage {
   pageIndex: number;
