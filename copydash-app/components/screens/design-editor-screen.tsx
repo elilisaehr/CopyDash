@@ -23,7 +23,7 @@ import { EditableBlock } from "@/components/features/editable-block";
 import { mockGenerateFieldSuggestions } from "@/lib/ai-mock";
 import { getPdfjs } from "@/lib/pdf";
 import { createClient } from "@/lib/supabase/client";
-import { renderPdfDesign, joinLines, legacyLineIdPrefix, type DesignBlock, type RenderedPage, type BlockKind } from "@/lib/pdf-design";
+import { renderPdfDesign, joinLines, legacyLineIdPrefix, sampleBg, luminance, type DesignBlock, type RenderedPage, type BlockKind } from "@/lib/pdf-design";
 import { FONT_NAMES, cssFamily, fontForKind, useDesignFonts, useFontPreviews, useWebFonts, type DesignFonts } from "@/lib/design-fonts";
 import { useResizablePanel } from "@/hooks/use-resizable-panel";
 import { ResizeHandle } from "@/components/ui/resize-handle";
@@ -231,6 +231,37 @@ export function DesignEditorScreen({
     };
   }, [page.id, page.design_source]);
 
+  // Background colour behind each Figma text block, sampled from the
+  // rendered frame PNG (Figma's image host allows CORS reads) so an edited
+  // block lifts onto its real background instead of a white pill.
+  const [figmaBg, setFigmaBg] = React.useState<Record<string, [number, number, number]>>({});
+  React.useEffect(() => {
+    if (!figmaDesign) return;
+    let cancelled = false;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      if (cancelled) return;
+      const canvas = document.createElement("canvas");
+      canvas.width = figmaDesign.width;
+      canvas.height = figmaDesign.height;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      try {
+        const out: Record<string, [number, number, number]> = {};
+        for (const b of figmaDesign.blocks) out[b.id] = sampleBg(ctx, b.x, b.y, b.w, b.h);
+        setFigmaBg(out);
+      } catch (e) {
+        console.warn("Figma background sampling failed", e);
+      }
+    };
+    img.src = figmaDesign.image_url;
+    return () => {
+      cancelled = true;
+    };
+  }, [figmaDesign]);
+
   // Re-derive the renderer-agnostic `pages`/`blocks` state from the Figma
   // design whenever it loads or the zoom scale changes — mirrors the PDF
   // effect above, just without needing to re-render anything (Figma's
@@ -238,25 +269,28 @@ export function DesignEditorScreen({
   React.useEffect(() => {
     if (!figmaDesign) return;
     const s = scale;
-    const scaledBlocks: DesignBlock[] = figmaDesign.blocks.map((b) => ({
-      id: b.id,
-      pageIndex: 0,
-      x: b.x * s,
-      top: b.y * s,
-      w: b.w * s,
-      h: b.h * s,
-      fontH: b.fontSize * s,
-      text: b.text,
-      bg: [255, 255, 255],
-      dark: false,
-      kind: b.fontSize >= 30 ? "heading" : b.fontSize >= 22 ? "subhead" : b.fontSize >= 17 ? "lead" : "body",
-      color: b.color,
-      weight: b.fontWeight,
-      textAlign: b.textAlign,
-      wrap: true,
-      lineHeight: b.lineHeight ? b.lineHeight * s : undefined,
-      fontFamily: b.fontFamily ? cssFamily(b.fontFamily) : undefined,
-    }));
+    const scaledBlocks: DesignBlock[] = figmaDesign.blocks.map((b) => {
+      const bg = figmaBg[b.id] || [255, 255, 255];
+      return {
+        id: b.id,
+        pageIndex: 0,
+        x: b.x * s,
+        top: b.y * s,
+        w: b.w * s,
+        h: b.h * s,
+        fontH: b.fontSize * s,
+        text: b.text,
+        bg,
+        dark: luminance(bg) < 0.5,
+        kind: b.fontSize >= 30 ? "heading" : b.fontSize >= 22 ? "subhead" : b.fontSize >= 17 ? "lead" : "body",
+        color: b.color,
+        weight: b.fontWeight,
+        textAlign: b.textAlign,
+        wrap: true,
+        lineHeight: b.lineHeight ? b.lineHeight * s : undefined,
+        fontFamily: b.fontFamily ? cssFamily(b.fontFamily) : undefined,
+      };
+    });
     // Deriving pages/blocks synchronously from already-fetched figmaDesign
     // state — no external I/O to defer past a microtask, unlike the async
     // fetch effects above.
@@ -274,7 +308,7 @@ export function DesignEditorScreen({
     setFigmaFonts([...new Set(figmaDesign.blocks.map((b) => b.fontFamily).filter((f): f is string => !!f))]);
     handleNaturalWidth(figmaDesign.width);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [figmaDesign, scale]);
+  }, [figmaDesign, figmaBg, scale]);
 
   // Edits saved before paragraph merging (and before block ids stopped
   // depending on zoom) are keyed per source line. Carry them over onto the
@@ -666,7 +700,7 @@ export function DesignEditorScreen({
                     style={{ position: "relative", width: pg.w, height: pg.h, background: "#fff", borderRadius: 6, overflow: "hidden", boxShadow: "0 4px 30px rgba(0,0,0,0.14)", flexShrink: 0 }}
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={pg.url} width={pg.w} height={pg.h} draggable={false} style={{ display: "block", userSelect: "none" }} alt="" />
+                    <img src={pg.url} crossOrigin="anonymous" width={pg.w} height={pg.h} draggable={false} style={{ display: "block", userSelect: "none" }} alt="" />
                     {pg.blocks.map((b) => (
                       <EditableBlock
                         key={b.id}
