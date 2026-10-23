@@ -31,6 +31,16 @@
 
 ## Next up — product decisions of 2026-10-23 (in this order)
 
+### Status (paused 2026-10-23) — branch `feat/workspaces-roles`, not pushed, not deployed
+
+- **A1 Database — done.** Migration `0007_workspaces_roles.sql` (workspaces, workspace_members, project_members.role, invitations, plan_limits, backfill, RLS, plan-limit triggers). Also fixes a live hole: the old `pm_id` policies let any signed-in user write projects/clients into someone else's workspace.
+- **A2 App by role — done.** Workspace-scoped queries (`lib/workspace.ts`), admin-only routes/actions, plan-limit notices (`lib/plan.ts`).
+- **A4 Onboarding — done.** `/onboarding` wizard, browser-tested end to end on dev.
+- **A3 Invitations — next.** Replace Settings → Team (still the cosmetic `team_invitations`) with: invite editor/client to chosen projects → row in `invitations` → email via Resend (`RESEND_API_KEY` in `.env.local`; without a verified domain Resend only delivers to the account owner's address) → `/invite/[token]` accept route (service role) that creates/links the account and memberships. Revisit the signup role picker at the same time (clients/editors should arrive via invite links).
+- **Dev environment:** `npm run dev` uses the `copydash-dev` Supabase project via `copydash-app/.env.development.local`; prod stays on `.env.local`. Dev test accounts: pm1 / pm2 / client1 / editor1 / newpm `@copydash.test` (password `Test-1234!`), created by the scratch seed script.
+- **Release checklist for A (when done):** (1) paste `0007_workspaces_roles.sql` into the **prod** Supabase SQL editor — it's backward compatible with the deployed code, so apply it *before* merging; (2) open a PR, check the Vercel preview with a real account; (3) merge. Existing PMs become admins on the 'pro' plan.
+- Later: decide paid plan limits/prices (D), then Stripe; mixed text styles (Milestone 4).
+
 **A. Roles, workspaces and onboarding**
 - Three roles: **Admin** (agency owner — creates projects, manages everything and everyone), **Editor** (agency teammate — can add/remove and edit pages, only in projects they're invited to), **Client** (edits the copy on their pages only, creates nothing).
 - Introduce a workspace (the agency) that owns projects, so limits and billing attach to it. Existing PMs become Admins of an auto-created workspace; existing clients stay Clients.
