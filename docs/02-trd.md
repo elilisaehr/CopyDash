@@ -33,6 +33,7 @@ Web only. Responsive breakpoints are not formally audited — the UI is built wi
 | Figma REST API | Import a Figma frame's text/layout directly (no geometry guessing, unlike PDF) | **Real** | Each PM supplies their own Personal Access Token, stored in `figma_connections.access_token` |
 | An LLM provider (e.g. Anthropic) | AI writing suggestions, "extract content from PDF" | **Mocked** — `lib/ai-mock.ts` is the single integration point to swap in a real call later | Not yet chosen — **[OPEN QUESTION]** |
 | Outbound email (invitations, notifications) | Client/teammate invitations, notification preferences | **Not implemented** — rows are saved (`team_invitations`, `notification_prefs`) but no email is ever sent | Not yet chosen — **[OPEN QUESTION]** (Resend, Postmark, SES, etc.) |
+| Google Fonts | Loads the fonts a PM picks for a PDF design (PDFs exported from Figma embed text as Type3 glyph drawings with no font name or usable font file) | **Real** — loaded from the viewer's browser, which shares their IP with Google; **[OPEN QUESTION]** self-host if that's a GDPR/nLPD concern | n/a |
 | pdf.js (client-side library, not a hosted service) | Render uploaded PDFs to canvas + extract text geometry, entirely in the browser | **Real** | n/a |
 
 ## Architecture

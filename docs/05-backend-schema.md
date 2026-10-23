@@ -97,6 +97,7 @@ PK: `(project_id, user_id)`.
 | has_pdf_design | boolean | yes | `false` |
 | design_source | text, check in (`pdf`,`figma`) | no | null |
 | design_seed | text | no | — |
+| design_fonts | jsonb `{heading, body}` — Google Fonts names the PM picked for a PDF design (migration `0006`) | no | null |
 | updated_by_name | text | no | — |
 | archived_at | timestamptz | no | null |
 | created_at / updated_at | timestamptz | yes | `now()` |

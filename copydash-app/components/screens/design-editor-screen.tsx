@@ -15,7 +15,7 @@
 
 import * as React from "react";
 import { Icon } from "@/components/ui/icon";
-import { Btn, FieldTextarea, StatusPicker, Spinner, Modal } from "@/components/ui/primitives";
+import { Btn, FieldTextarea, StatusPicker, Spinner, Modal, SelectInput } from "@/components/ui/primitives";
 import { CommentButton } from "@/components/features/comments";
 import { computeSEO, SEOToggle, SEOPanel } from "@/components/features/seo";
 import { AISuggestButton } from "@/components/features/ai-suggest";
@@ -24,6 +24,7 @@ import { mockGenerateFieldSuggestions } from "@/lib/ai-mock";
 import { getPdfjs } from "@/lib/pdf";
 import { createClient } from "@/lib/supabase/client";
 import { renderPdfDesign, joinLines, legacyLineIdPrefix, type DesignBlock, type RenderedPage, type BlockKind } from "@/lib/pdf-design";
+import { FONT_NAMES, cssFamily, fontForKind, useDesignFonts, useFontPreviews, type DesignFonts } from "@/lib/design-fonts";
 import { useResizablePanel } from "@/hooks/use-resizable-panel";
 import { ResizeHandle } from "@/components/ui/resize-handle";
 import type { Project, Page, UserRole, FigmaDesign } from "@/lib/supabase/types";
@@ -106,6 +107,9 @@ export function DesignEditorScreen({
   const [saveStatus, setSaveStatus] = React.useState<"idle" | "saving" | "saved">("idle");
   const [pageStatus, setPageStatus] = React.useState<string>(page.status);
   const [exportOpen, setExportOpen] = React.useState(false);
+  const [fontsOpen, setFontsOpen] = React.useState(false);
+  const [designFonts, setDesignFonts] = React.useState<DesignFonts | null>(page.design_fonts ?? null);
+  useDesignFonts(designFonts);
   const [seoOpen, setSeoOpen] = React.useState(false);
   const [aiState, setAiState] = React.useState<AiState>("idle");
   const [aiProgress, setAiProgress] = React.useState(0);
@@ -455,6 +459,20 @@ export function DesignEditorScreen({
 
   const showDesign = !!pdfPath || !!figmaDesign;
 
+  const saveFonts = async (next: DesignFonts) => {
+    const supabase = createClient();
+    const { error } = await supabase.from("pages").update({ design_fonts: next }).eq("id", page.id);
+    if (error) throw error;
+    setDesignFonts(next);
+  };
+
+  // PDF designs carry no usable font, so edited copy uses the fonts the PM
+  // picked for the page (Figma blocks already know their real font).
+  const withDesignFont = (b: DesignBlock): DesignBlock => {
+    const font = figmaDesign ? null : fontForKind(designFonts, b.kind);
+    return font ? { ...b, fontFamily: cssFamily(font) } : b;
+  };
+
   const handleResyncFigma = async () => {
     if (!figmaDesign) return;
     setPdfStatus("loading");
@@ -534,6 +552,11 @@ export function DesignEditorScreen({
                 </Btn>
               ) : (
                 <>
+                  {pdfPath && (
+                    <Btn variant="outline" size="sm" icon="type" onClick={() => setFontsOpen(true)}>
+                      Fonts
+                    </Btn>
+                  )}
                   <input ref={fileRef} type="file" accept=".pdf,application/pdf" style={{ display: "none" }} onChange={(e) => handleReplace(e.target.files?.[0] || null)} />
                   <Btn variant="outline" size="sm" icon="upload" onClick={() => fileRef.current?.click()}>
                     Replace
@@ -642,7 +665,7 @@ export function DesignEditorScreen({
                     {pg.blocks.map((b) => (
                       <EditableBlock
                         key={b.id}
-                        block={b}
+                        block={withDesignFont(b)}
                         value={editsLoaded ? edits[b.id] : b.text}
                         onChange={onChange}
                         onCommit={persistBlock}
@@ -799,6 +822,10 @@ export function DesignEditorScreen({
       <Modal open={exportOpen} onClose={() => setExportOpen(false)} title="Export Content" width={480}>
         <ExportPanel fields={fields} onClose={() => setExportOpen(false)} />
       </Modal>
+
+      <Modal open={fontsOpen} onClose={() => setFontsOpen(false)} title="Design Fonts" width={480}>
+        {fontsOpen && <FontsPanel value={designFonts} onSave={saveFonts} onClose={() => setFontsOpen(false)} />}
+      </Modal>
     </div>
   );
 }
@@ -817,6 +844,77 @@ function WordCount({ text, original }: { text: string; original: string }) {
         {words}/{orig} words
       </span>
       {tooLong && <span>· longer than the original, may not fit the design</span>}
+    </div>
+  );
+}
+
+const FONT_OPTIONS = FONT_NAMES.map((n) => ({ value: n, label: n }));
+
+const FONT_SLOTS = [
+  { key: "heading", label: "Headings", sample: "Your headline, in place", size: 20, weight: 700 },
+  { key: "body", label: "Body text", sample: "Body copy preview — the quick brown fox jumps over the lazy dog.", size: 14, weight: 400 },
+] as const;
+
+function FontsPanel({ value, onSave, onClose }: { value: DesignFonts | null; onSave: (next: DesignFonts) => Promise<void>; onClose: () => void }) {
+  useFontPreviews(true);
+  const [draft, setDraft] = React.useState<DesignFonts>(value || {});
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(draft);
+      onClose();
+    } catch (e) {
+      console.warn("Saving design fonts failed", e);
+      setError("Couldn’t save the fonts. Please try again.");
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      <p style={{ margin: 0, fontSize: 13, color: "#71717b", lineHeight: 1.5, fontFamily: "var(--font-body)" }}>
+        PDFs don&apos;t tell us which fonts they use, so edited text falls back to a default font. Pick the design&apos;s fonts so edits match the page — everyone editing this page will see them.
+      </p>
+      {FONT_SLOTS.map((slot) => {
+        const font = draft[slot.key];
+        return (
+          <div key={slot.key} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <SelectInput label={slot.label} value={font || ""} onChange={(v) => setDraft((d) => ({ ...d, [slot.key]: v || null }))} options={FONT_OPTIONS} placeholder="Default font" />
+            <div
+              style={{
+                padding: "10px 12px",
+                borderRadius: 8,
+                border: "1px solid #f0f0f0",
+                background: "#fafafa",
+                color: "#09090b",
+                fontSize: slot.size,
+                fontWeight: slot.weight,
+                lineHeight: 1.35,
+                fontFamily: font ? `${cssFamily(font)}, var(--font-sans)` : "var(--font-sans)",
+              }}
+            >
+              {slot.sample}
+            </div>
+          </div>
+        );
+      })}
+      {error && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#b91c1c", fontFamily: "var(--font-sans)" }}>
+          <Icon name="alert-circle" size={13} color="#b91c1c" /> {error}
+        </div>
+      )}
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        <Btn variant="ghost" size="sm" onClick={onClose}>
+          Cancel
+        </Btn>
+        <Btn variant="primary" size="sm" onClick={save} disabled={saving}>
+          {saving ? "Saving…" : "Save fonts"}
+        </Btn>
+      </div>
     </div>
   );
 }

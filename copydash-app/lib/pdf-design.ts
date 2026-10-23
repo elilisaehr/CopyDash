@@ -126,6 +126,72 @@ export const sampleBg = (ctx: CanvasRenderingContext2D, x: number, y: number, w:
   return [median(cols.map((c) => c[0])), median(cols.map((c) => c[1])), median(cols.map((c) => c[2]))];
 };
 
+/**
+ * Reads the rendered glyphs inside a text block: pixels far from the
+ * background are ink. Returns the text colour (median of the solid stroke
+ * cores, skipping anti-aliased edges), the share of the block's area the
+ * ink covers (very high means the background was misread), and the median
+ * horizontal ink run in px — roughly the stem thickness, which tracks
+ * stroke weight independently of text length.
+ * Null when nothing stands out from the background.
+ */
+export const sampleInk = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  bg: [number, number, number],
+): { color: [number, number, number]; coverage: number; stem: number } | null => {
+  const x0 = Math.max(0, Math.floor(x));
+  const y0 = Math.max(0, Math.floor(y));
+  const x1 = Math.min(ctx.canvas.width, Math.ceil(x + w));
+  const y1 = Math.min(ctx.canvas.height, Math.ceil(y + h));
+  if (x1 - x0 < 2 || y1 - y0 < 2) return null;
+  const d = ctx.getImageData(x0, y0, x1 - x0, y1 - y0).data;
+  const n = d.length / 4;
+  const dist = new Float32Array(n);
+  let max = 0;
+  for (let i = 0; i < n; i++) {
+    const dr = d[i * 4] - bg[0];
+    const dg = d[i * 4 + 1] - bg[1];
+    const db = d[i * 4 + 2] - bg[2];
+    dist[i] = Math.sqrt(dr * dr + dg * dg + db * db);
+    if (dist[i] > max) max = dist[i];
+  }
+  if (max < 60) return null;
+  const r: number[] = [];
+  const g: number[] = [];
+  const b: number[] = [];
+  // A run's thickness sums each pixel's ink fraction, so anti-aliased edges
+  // count partially and the result is sub-pixel (stable across zoom levels).
+  const runs: number[] = [];
+  const rowW = x1 - x0;
+  let ink = 0;
+  let run = 0;
+  for (let i = 0; i < n; i++) {
+    const t = dist[i] / max;
+    if (t > 0.5) ink++;
+    if (t >= 0.8) {
+      r.push(d[i * 4]);
+      g.push(d[i * 4 + 1]);
+      b.push(d[i * 4 + 2]);
+    }
+    const inRun = t > 0.15;
+    if (inRun) run += t;
+    if (run && (!inRun || (i + 1) % rowW === 0)) {
+      runs.push(run);
+      run = 0;
+    }
+  }
+  return { color: [median(r), median(g), median(b)], coverage: ink / n, stem: median(runs) };
+};
+
+// Stem thickness as a share of the type size → CSS font weight. Calibrated
+// on a real Figma export (Open Sans–like faces): regular ≈ 0.08,
+// semibold ≈ 0.12, bold ≈ 0.15, extra-bold ≈ 0.17.
+const stemWeight = (ratio: number) => (ratio < 0.097 ? 400 : ratio < 0.133 ? 600 : ratio < 0.16 ? 700 : 800);
+
 interface RawItem {
   x: number;
   baseline: number;
@@ -309,6 +375,10 @@ export function buildBlocks(
     const sourceLines = segs.map((s) => s.text);
     const text = multi ? joinLines(sourceLines) : first.text;
     const bg = sampleBg(ctx, x, top, right - x, h);
+    // Ink covering over half the box means the background was misread (text
+    // on a pill or photo) — keep EditableBlock's dark/light fallbacks then.
+    const sampled = sampleInk(ctx, x, top, right - x, h, bg);
+    const ink = sampled && sampled.coverage < 0.5 ? sampled : null;
     const size = fontH / scale; // type size at 100% zoom
     blocks.push({
       // Position is measured at scale 1 so the id (and the saved edit keyed
@@ -325,6 +395,8 @@ export function buildBlocks(
       dark: luminance(bg) < 0.5,
       kind: size >= 30 ? "heading" : size >= 22 ? "subhead" : size >= 17 ? "lead" : "body",
       fontFamily: first.fontFamily,
+      color: ink ? `rgb(${ink.color.join(",")})` : undefined,
+      weight: ink ? stemWeight(ink.stem / fontH) : undefined,
       wrap: multi || undefined,
       lineHeight: multi ? pitch : undefined,
       textAlign: detectAlign(segs, fontH),
