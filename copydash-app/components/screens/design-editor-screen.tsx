@@ -16,7 +16,7 @@
 import * as React from "react";
 import { Icon } from "@/components/ui/icon";
 import { Btn, FieldTextarea, StatusBadge, StatusPicker, Spinner, Modal, SelectInput } from "@/components/ui/primitives";
-import { ChangeNote, ReviewBanner, useReviewRound } from "@/components/features/review";
+import { ChangeNote, useReviewRound } from "@/components/features/review";
 import { CommentButton } from "@/components/features/comments";
 import { computeSEO, SEOToggle, SEOPanel } from "@/components/features/seo";
 import { AISuggestButton } from "@/components/features/ai-suggest";
@@ -109,7 +109,6 @@ export function DesignEditorScreen({
   const [saveStatus, setSaveStatus] = React.useState<"idle" | "saving" | "saved">("idle");
   const [pageStatus, setPageStatus] = React.useState<PageStatus>(page.status);
   const [reviewVersion, setReviewVersion] = React.useState(0);
-  const [onlyChanges, setOnlyChanges] = React.useState(false);
   const round = useReviewRound(page.id, "design_edits", reviewVersion);
   const [exportOpen, setExportOpen] = React.useState(false);
   const [fontsOpen, setFontsOpen] = React.useState(false);
@@ -443,24 +442,19 @@ export function DesignEditorScreen({
     const c = round?.changes[b.id];
     return c && (c.before ?? b.text) !== (c.after ?? b.text) ? c : null;
   };
-  const changedIds = blocks.filter((b) => changeFor(b)).map((b) => b.id);
 
   const flushActive = async () => {
     if (activeId) await persistBlock(activeId);
   };
 
-  const onMoved = (next: PageStatus) => {
-    setPageStatus(next);
-    setOnlyChanges(false);
-    setReviewVersion((v) => v + 1);
-  };
-
-  // The agency's status menu goes through the same server action as the banner.
+  // Status changes (agency menu, client "Submit for Review") save pending
+  // edits first, then go through the server action that emails the project.
   const moveTo = async (next: PageStatus) => {
     await flushActive();
     const res = await changePageStatus(page.id, next);
-    if (res.ok) onMoved(next);
-    else alert(res.error);
+    if (!res.ok) return alert(res.error);
+    setPageStatus(next);
+    setReviewVersion((v) => v + 1);
   };
 
   const handleReplace = async (file: File | null) => {
@@ -670,6 +664,11 @@ export function DesignEditorScreen({
               </Btn>
             </>
           )}
+          {role === "client" && pageStatus === "In Progress" && (
+            <Btn variant="outline" size="sm" onClick={() => moveTo("Pending Review")}>
+              Submit for Review
+            </Btn>
+          )}
           <Btn variant="primary" size="sm" onClick={() => handleSave()} icon={saveStatus === "saved" ? "check" : undefined}>
             {saveStatus === "saving" ? (
               <>
@@ -683,18 +682,6 @@ export function DesignEditorScreen({
           </Btn>
         </div>
       </div>
-
-      <ReviewBanner
-        pageId={page.id}
-        role={role}
-        status={pageStatus}
-        handoffBy={round?.handoff.actor_name ?? null}
-        changedCount={changedIds.length}
-        showChanges={onlyChanges}
-        onToggleChanges={() => setOnlyChanges((v) => !v)}
-        beforeMove={flushActive}
-        onMoved={onMoved}
-      />
 
       {/* Body — Split Pane */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0 }}>
@@ -868,7 +855,6 @@ export function DesignEditorScreen({
             )}
             {blocks.map((b, i) => {
               const change = changeFor(b);
-              if (onlyChanges && changedIds.length && !change) return null;
               const field = fields[i];
               const edited = isEdited(b);
               const active = activeId === b.id;

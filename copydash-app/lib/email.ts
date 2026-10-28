@@ -52,18 +52,11 @@ export function invitationEmail({ inviterName, workspaceName, role, url }: { inv
   return { subject, html, text };
 }
 
-export type ReviewEvent = "sent" | "sent_back" | "submitted" | "approved";
-
-/** "It's your turn" email after a page changes hands (see lib/actions/review.ts). */
-export function reviewEmail({ event, actorName, pageName, projectName, url }: { event: ReviewEvent; actorName: string; pageName: string; projectName: string; url: string }) {
-  const page = `the ${pageName} page of ${projectName}`;
-  const { sentence, subject, button } = {
-    sent: { sentence: `sent you ${page} to fill in. It's your turn.`, subject: `Your turn: ${pageName} — ${projectName}`, button: "Open the page" },
-    sent_back: { sentence: `sent ${page} back to you with changes to look at. It's your turn.`, subject: `Back to you: ${pageName} — ${projectName}`, button: "See what changed" },
-    submitted: { sentence: `submitted ${page} for review. It's your turn.`, subject: `Pending review: ${pageName} — ${projectName}`, button: "Review the page" },
-    approved: { sentence: `marked ${page} as completed. Nothing more to do on it.`, subject: `Completed: ${pageName} — ${projectName}`, button: "View the page" },
-  }[event];
+/** Alert to everyone on a project when someone changes a page's status (see lib/actions/review.ts). */
+export function statusChangeEmail({ actorName, status, pageName, projectName, url }: { actorName: string; status: string; pageName: string; projectName: string; url: string }) {
+  const sentence = `changed the status of the ${pageName} page (${projectName}) to "${status}".`;
   const footer = "You get this email because you work on this project in CopyDash. You can turn it off in Settings → Notifications.";
-  const text = `${actorName} ${sentence}\n\n${button}: ${url}\n\n${footer}`;
-  return { subject, html: layout({ who: actorName, sentence, button, url, footer }), text };
+  const subject = `${pageName} is now ${status} — ${projectName}`;
+  const text = `${actorName} ${sentence}\n\nOpen the page: ${url}\n\n${footer}`;
+  return { subject, html: layout({ who: actorName, sentence, button: "Open the page", url, footer }), text };
 }

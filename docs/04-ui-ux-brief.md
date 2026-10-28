@@ -36,7 +36,7 @@ Defined in `app/globals.css` as CSS variables (Zinc neutral scale + a Purple acc
 - Pending Review (with the agency) — blue (`#eff6ff` bg / `#1d4ed8` text)
 - Completed — green (`#dcfce7` bg / `#15803d` text)
 
-**Review banner** (top of both editors, `components/features/review.tsx`): violet wash (`#f5f3ff`) when it's the viewer's turn, grey (`#fafafa`) while waiting on the other side, green (`#f0fdf4`) when completed. One sentence saying whose turn it is, one line of detail, the hand-off buttons on the right.
+**Changed text note** (under a text in both editors, `components/features/review.tsx: ChangeNote`): blue "Changed by X in the last round" + grey "Before: …" with the old text struck through. No review banner — the user prefers the status menu in the editor header.
 
 ## Typography
 

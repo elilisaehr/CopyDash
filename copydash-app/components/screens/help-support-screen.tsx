@@ -59,7 +59,7 @@ const FAQS = [
   },
   {
     q: "How do I submit my content for review?",
-    a: 'When you\'re done with a page, click "Submit for review" in the banner at the top of the page. Your agency gets an email and reviews your content. You\'ll get an email when they approve it or send it back to you.',
+    a: 'When you\'re done with a page, click "Submit for Review" in the top bar. Your agency gets an email and reviews your content. You\'ll get an email each time the page\'s status changes.',
   },
   {
     q: "What do the status labels mean?",

@@ -42,7 +42,7 @@ Agencies currently collect website content via email threads, generic Google Doc
 | **Design Editor** — edit copy in place on the rendered design (PDF or Figma) | Client sees exactly what their text will look like; no "where does this go" confusion | P0 — built (paragraph-level editing, not yet deployed — see Implementation Plan) |
 | **Field Editor** — structured list of text fields, no visual design | Faster path when there's no design to edit against, or the PM prefers a plain form | P0 — built |
 | Client portal | Clients review/submit content without needing a PM login | P0 — built |
-| Review flow — statuses that say whose turn it is, "what changed" since the last hand-off, email when it's your turn | Nobody wonders who's waiting on whom; reviews focus on what changed | Built (B) |
+| Review flow — statuses that say whose turn it is, "what changed" since the last hand-off, email alert to the whole project on every status change | Nobody wonders who's waiting on whom; reviews focus on what changed | Built (B) |
 | Comments per field | Discuss a specific piece of copy without leaving the page | P1 — built |
 | SEO score | Rule-based score PMs can show clients as a selling point | P1 — built |
 | AI writing suggestions | Speeds up drafting; currently a realistic mock, not a real model | P1 — built (mocked, see TRD) |
@@ -55,7 +55,7 @@ Agencies currently collect website content via email threads, generic Google Doc
 
 - A real LLM integration (currently mocked — see TRD "Key technical decisions").
 - Billing / payments / subscription tiers.
-- Notification emails beyond the review flow (comments, deadlines, weekly digests are not sent). Invitation and "your turn" review emails are real.
+- Notification emails beyond the review flow (comments, deadlines, weekly digests are not sent). Invitation and page-status-change emails are real.
 - Native mobile apps (web only, responsive is not yet audited for small screens).
 - Real-time multi-user presence/collaboration (no "who's viewing this page right now" indicator).
 - Automated tests, staging environment, CI/CD pipeline.

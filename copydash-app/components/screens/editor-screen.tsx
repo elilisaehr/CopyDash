@@ -12,7 +12,7 @@
 import * as React from "react";
 import { Icon } from "@/components/ui/icon";
 import { Btn, FieldTextarea, Modal, Spinner, StatusBadge, StatusPicker } from "@/components/ui/primitives";
-import { ChangeNote, ReviewBanner, useReviewRound } from "@/components/features/review";
+import { ChangeNote, useReviewRound } from "@/components/features/review";
 import { changePageStatus } from "@/lib/actions/review";
 import { CommentButton } from "@/components/features/comments";
 import { AISuggestButton } from "@/components/features/ai-suggest";
@@ -74,7 +74,6 @@ export function EditorScreen({
   const [fields, setFields] = React.useState<Field[]>(() => [...initialFields].sort(byPosition));
   const [pageStatus, setPageStatus] = React.useState(page.status);
   const [reviewVersion, setReviewVersion] = React.useState(0);
-  const [onlyChanges, setOnlyChanges] = React.useState(false);
   const round = useReviewRound(page.id, "fields", reviewVersion);
   // Clients edit only while the page is with them (the database enforces it too).
   const editable = role === "pm" || pageStatus === "In Progress";
@@ -199,20 +198,15 @@ export function EditorScreen({
     const c = round?.changes[f.id];
     return c && (c.before ?? "") !== (c.after ?? "") ? c : null;
   };
-  const changedCount = fields.filter((f) => changeFor(f)).length;
 
-  const onMoved = (next: PageStatus) => {
-    setPageStatus(next);
-    setOnlyChanges(false);
-    setReviewVersion((v) => v + 1);
-  };
-
-  // The agency's status menu goes through the same server action as the banner.
+  // Status changes (agency menu, client "Submit for Review") save pending
+  // edits first, then go through the server action that emails the project.
   const moveTo = async (next: PageStatus) => {
     await saveFields();
     const res = await changePageStatus(page.id, next);
-    if (res.ok) onMoved(next);
-    else alert(res.error);
+    if (!res.ok) return alert(res.error);
+    setPageStatus(next);
+    setReviewVersion((v) => v + 1);
   };
 
   const seoFields = React.useMemo(() => fields.map((f) => ({ id: f.field_key, content: f.content })), [fields]);
@@ -245,6 +239,11 @@ export function EditorScreen({
               </Btn>
             </>
           )}
+          {role === "client" && pageStatus === "In Progress" && (
+            <Btn variant="outline" size="sm" onClick={() => moveTo("Pending Review")}>
+              Submit for Review
+            </Btn>
+          )}
           <Btn variant="primary" size="sm" onClick={() => handleSave()} icon={saveStatus === "saved" ? "check" : undefined}>
             {saveStatus === "saving" ? (
               <>
@@ -258,18 +257,6 @@ export function EditorScreen({
           </Btn>
         </div>
       </div>
-
-      <ReviewBanner
-        pageId={page.id}
-        role={role}
-        status={pageStatus}
-        handoffBy={round?.handoff.actor_name ?? null}
-        changedCount={changedCount}
-        showChanges={onlyChanges}
-        onToggleChanges={() => setOnlyChanges((v) => !v)}
-        beforeMove={saveFields}
-        onMoved={onMoved}
-      />
 
       {/* Body — Split Pane */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0 }}>
@@ -320,7 +307,6 @@ export function EditorScreen({
           <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 20 }}>
             {fields.map((field) => {
               const change = changeFor(field);
-              if (onlyChanges && changedCount && !change) return null;
               return (
               <div
                 key={field.id}

@@ -1,14 +1,14 @@
 "use server";
 
-// Moving a page through the review flow (lib/review.ts). The status update
-// runs with the user's own session, so the database decides whether this
-// person may make this move (migration 0008). Then whoever's turn it now is
-// gets an email — best-effort, the move never fails because of email.
+// Changing a page's status (lib/review.ts). The update runs with the user's
+// own session, so the database decides whether this person may make this
+// change (migration 0008). Then everyone else on the project gets an alert
+// email — best-effort, the change never fails because of email.
 
 import { refresh } from "next/cache";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
-import { reviewEmail, sendEmail, type ReviewEvent } from "@/lib/email";
+import { sendEmail, statusChangeEmail } from "@/lib/email";
 import { siteUrl } from "@/lib/site-url";
 import { PAGE_STATUSES } from "@/lib/review";
 import type { PageStatus } from "@/lib/supabase/types";
@@ -17,8 +17,8 @@ export type StatusResult = { ok: true; notified: number } | { ok: false; error: 
 
 type Recipient = { id: string; email: string; side: "agency" | "client" };
 
-// Which notification switch (Settings → Notifications) covers each email; on unless turned off.
-const PREF: Record<ReviewEvent, string> = { sent: "pageReady", sent_back: "reviewResult", submitted: "clientUpdates", approved: "reviewResult" };
+// The notification switch (Settings → Notifications) for these emails; on unless turned off.
+const PREF = "statusChanges";
 
 export async function changePageStatus(pageId: string, next: PageStatus): Promise<StatusResult> {
   if (!PAGE_STATUSES.includes(next)) return { ok: false, error: "Unknown status." };
@@ -38,24 +38,21 @@ export async function changePageStatus(pageId: string, next: PageStatus): Promis
     .maybeSingle();
   if (error || !page) return { ok: false, error: error?.message || "You can't change this page's status." };
 
-  const event: ReviewEvent | null =
-    next === "In Progress" ? (before.status === "Pending Review" ? "sent_back" : "sent") : next === "Pending Review" ? "submitted" : next === "Completed" ? "approved" : null;
-
-  let notified = 0;
-  if (event) {
-    const project = page.project as unknown as { name: string; workspace_id: string } | null;
-    const side = event === "submitted" ? "agency" : "client";
-    const recipients = (await recipientsFor(page.project_id, project?.workspace_id ?? null, side, PREF[event])).filter((r) => r.id !== profile.id);
-    const base = await siteUrl();
-    const results = await Promise.all(
-      recipients.map((r) => {
-        const url = r.side === "client" ? `${base}/client/pages/${page.id}` : `${base}/pm/projects/${page.project_id}/pages/${page.id}`;
-        const mail = reviewEmail({ event, actorName: profile.name, pageName: page.name, projectName: project?.name ?? "your project", url });
-        return sendEmail({ to: r.email, ...mail });
-      }),
-    );
-    notified = results.filter((r) => r.ok).length;
-  }
+  const project = page.project as unknown as { name: string; workspace_id: string } | null;
+  const [agency, clients] = await Promise.all([
+    recipientsFor(page.project_id, project?.workspace_id ?? null, "agency", PREF),
+    recipientsFor(page.project_id, project?.workspace_id ?? null, "client", PREF),
+  ]);
+  const recipients = [...agency, ...clients].filter((r) => r.id !== profile.id);
+  const base = await siteUrl();
+  const results = await Promise.all(
+    recipients.map((r) => {
+      const url = r.side === "client" ? `${base}/client/pages/${page.id}` : `${base}/pm/projects/${page.project_id}/pages/${page.id}`;
+      const mail = statusChangeEmail({ actorName: profile.name, status: next, pageName: page.name, projectName: project?.name ?? "your project", url });
+      return sendEmail({ to: r.email, ...mail });
+    }),
+  );
+  const notified = results.filter((r) => r.ok).length;
 
   refresh();
   return { ok: true, notified };

@@ -36,9 +36,9 @@
 - **A + speed pass — released** (PR #2, merged 2026-10-28; `0007` applied on prod).
 - **B Clearer review — built on branch `feat/clearer-review`, browser-tested on dev, not released yet.**
   - Page statuses keep their names — Draft → In Progress (with the client) → Pending Review (with the agency) → Completed — but each now means a turn (migration `0008_review_flow.sql`; the user preferred these names over With client / To review / Approved). The database decides who may move a page: the agency anywhere, a client only "submit" a page that is In Progress; clients can edit copy only while the page is In Progress.
-  - A banner at the top of both editors says whose turn it is, with the buttons to hand the page over (Send to client / Submit for review / Send back to client / Approve / Reopen). The agency keeps the status menu for manual changes; it goes through the same server action (`lib/actions/review.ts`).
-  - "What changed": each hand-off snapshots the copy; once a page has gone back and forth, the receiver sees "N texts changed", a "Show only changes" filter, and per text "Changed by X — Before: …".
-  - Email to whoever's turn it is (client: sent / sent back / completed; agency admins + project editors: submitted), respecting Settings → Notifications. Same Resend limit as invitations.
+  - No banner (the user asked to remove it): the agency changes status with the status menu in the editor header, the client with a "Submit for Review" button (shown while the page is In Progress). Both go through `lib/actions/review.ts`.
+  - "What changed": each status change snapshots the copy; once a page has gone back and forth, each text changed in the last round shows "Changed by X — Before: …".
+  - Email alert on every status change to everyone on the project (workspace admins, project editors, project clients) except the person who made it: "X changed the status of the Y page to Z". Switch "Page status changes" in Settings → Notifications (both sides). Same Resend limit as invitations.
   - Project status is now derived from its pages (Pending Review > In Progress > Completed > Draft); dashboards count "pages to review".
   - Permission tests: `supabase/dev/review-test.cjs` (run by `rebuild.sh`).
   - **Release checklist:** (1) paste `0008_review_flow.sql` into the **prod** SQL editor — backward compatible with the deployed code, apply before merging; (2) PR + Vercel preview; (3) merge.
@@ -63,7 +63,7 @@
 - Onboarding: a short first-login wizard — agency name → first project → first page (PDF or Figma) → lands in the editor; inviting someone is offered at the end, optional.
 
 **B. Clearer review**
-- Statuses that say who must act: Draft → In Progress (client) → Pending Review (agency) → Completed; a clear "your turn" banner.
+- Statuses that say who must act: Draft → In Progress (client) → Pending Review (agency) → Completed.
 - Show what changed since the last hand-off (before/after, who edited what).
 - Email notification when it's someone's turn (uses A's email provider).
 
