@@ -32,9 +32,11 @@ Defined in `app/globals.css` as CSS variables (Zinc neutral scale + a Purple acc
 
 **Semantic status colors** (used in `StatusBadge`, a colored dot + pill):
 - Draft — grey (`#f4f4f5` bg / `#71717b` text)
-- In Progress — amber (`#fff7ed` bg / `#f59e0b`–`#c2410c` text)
-- Pending Review — blue (`#eff6ff`-ish bg / `#0369a1` text)
+- In Progress (with the client) — amber (`#fef9c3` bg / `#713f12` text)
+- Pending Review (with the agency) — blue (`#eff6ff` bg / `#1d4ed8` text)
 - Completed — green (`#dcfce7` bg / `#15803d` text)
+
+**Changed text note** (under a text in both editors, `components/features/review.tsx: ChangeNote`): blue "Changed by X in the last round" + grey "Before: …" with the old text struck through. No review banner — the user prefers the status menu in the editor header.
 
 ## Typography
 

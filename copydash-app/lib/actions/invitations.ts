@@ -5,8 +5,8 @@
 // manage" RLS policy is the real gate; requireAdmin only gives a clean error.
 // Accepting an invitation lives in app/invite/[token]/actions.ts.
 
-import { headers } from "next/headers";
 import { refresh } from "next/cache";
+import { siteUrl } from "@/lib/site-url";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { getProfile, getUser } from "@/lib/auth";
 import { getWorkspaceContext } from "@/lib/workspace";
@@ -29,11 +29,7 @@ async function adminContext() {
 }
 
 async function inviteLink(token: string) {
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  const proto = h.get("x-forwarded-proto") ?? (host?.startsWith("localhost") ? "http" : "https");
-  const base = process.env.NEXT_PUBLIC_SITE_URL || `${proto}://${host}`;
-  return `${base}/invite/${token}`;
+  return `${await siteUrl()}/invite/${token}`;
 }
 
 async function deliver(inv: Pick<Invitation, "email" | "role" | "token">, workspaceName: string, send = true): Promise<InviteResult> {

@@ -5,12 +5,15 @@ import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 import { Avatar, Btn, Card, KPICard, PageHeader, StatusBadge } from "@/components/ui/primitives";
 import { timeAgo } from "@/lib/format";
-import type { ActivityLogEntry, Project } from "@/lib/supabase/types";
+import type { ActivityLogEntry, PageStatus, Project } from "@/lib/supabase/types";
 
-export interface ProjectWithStats extends Project {
+/** `status` is derived from the pages (lib/review.ts projectStatus), not the legacy column. */
+export interface ProjectWithStats extends Omit<Project, "status"> {
+  status: PageStatus;
   clientName: string;
   pageCount: number;
   completedPageCount: number;
+  toReviewCount: number;
 }
 
 type Greeting = "morning" | "afternoon" | "evening";
@@ -45,9 +48,10 @@ export function PmOverviewScreen({
   const totalPages = projects.reduce((s, p) => s + p.pageCount, 0);
   const completedPages = projects.reduce((s, p) => s + p.completedPageCount, 0);
   const recentProjects = [...projects].sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1)).slice(0, 3);
-  const needsAttention = projects.filter((p) => p.status === "Pending Review");
-  const activeCount = projects.filter((p) => p.status === "In Progress").length;
+  const needsAttention = projects.filter((p) => p.toReviewCount > 0);
+  const activeCount = projects.filter((p) => p.status !== "Completed").length;
   const completedCount = projects.filter((p) => p.status === "Completed").length;
+  const toReview = projects.reduce((s, p) => s + p.toReviewCount, 0);
 
   return (
     <>
@@ -67,15 +71,15 @@ export function PmOverviewScreen({
         {/* KPI row */}
         <div style={{ display: "flex", gap: 16, marginBottom: 32 }}>
           <KPICard label="Active Projects" value={activeCount} icon="folder-open" subtitle={`${projects.length} total`} />
-          <KPICard label="Pages Collected" value={`${completedPages}/${totalPages}`} icon="file-text" color="#0369a1" subtitle="across all projects" />
+          <KPICard label="Pages Completed" value={`${completedPages}/${totalPages}`} icon="file-text" color="#0369a1" subtitle="across all projects" />
           <KPICard
-            label="Pending Review"
-            value={needsAttention.length}
+            label="Pages to Review"
+            value={toReview}
             icon="eye"
-            color={needsAttention.length > 0 ? "#f59e0b" : "#15803d"}
-            subtitle={needsAttention.length > 0 ? "Action needed" : "All clear"}
+            color={toReview > 0 ? "#f59e0b" : "#15803d"}
+            subtitle={toReview > 0 ? "Your turn" : "All clear"}
           />
-          <KPICard label="Completed" value={completedCount} icon="check-circle" color="#15803d" subtitle="delivered" />
+          <KPICard label="Completed Projects" value={completedCount} icon="check-circle" color="#15803d" subtitle="every page completed" />
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 24 }}>
@@ -111,7 +115,7 @@ export function PmOverviewScreen({
                 <div style={{ padding: 24, background: "#f0fdf4", borderRadius: 12, border: "1px solid #bbf7d0", textAlign: "center" }}>
                   <Icon name="check-circle" size={20} color="#15803d" style={{ margin: "0 auto 8px" }} />
                   <div style={{ fontSize: 13, color: "#15803d", fontWeight: 500, fontFamily: "var(--font-sans)" }}>All caught up!</div>
-                  <div style={{ fontSize: 12, color: "#4ade80", marginTop: 4, fontFamily: "var(--font-body)" }}>No projects pending review</div>
+                  <div style={{ fontSize: 12, color: "#4ade80", marginTop: 4, fontFamily: "var(--font-body)" }}>No pages waiting for your review</div>
                 </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -125,7 +129,7 @@ export function PmOverviewScreen({
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 13, fontWeight: 500, color: "#09090b", fontFamily: "var(--font-sans)" }}>{p.name}</div>
                         <div style={{ fontSize: 11, color: "#92400e", fontFamily: "var(--font-body)", marginTop: 2 }}>
-                          {p.clientName} · Pending Review
+                          {p.clientName} · {p.toReviewCount} {p.toReviewCount === 1 ? "page" : "pages"} to review
                         </div>
                       </div>
                       <Icon name="chevron-right" size={13} color="#f59e0b" />

@@ -34,6 +34,7 @@ const TABS = [
 type TabId = (typeof TABS)[number]["id"];
 
 export type ClientNotifPrefs = {
+  statusChanges: boolean;
   pageReady: boolean;
   commentReply: boolean;
   reviewResult: boolean;
@@ -42,6 +43,7 @@ export type ClientNotifPrefs = {
 };
 
 export const CLIENT_NOTIF_DEFAULTS: ClientNotifPrefs = {
+  statusChanges: true,
   pageReady: true,
   commentReply: true,
   reviewResult: true,
@@ -205,6 +207,7 @@ function AccountTab({ profile, project }: { profile: Profile; project: { name: s
 
 // ── Notifications ────────────────────────────────────────────────
 const NOTIF_ITEMS: { key: keyof ClientNotifPrefs; label: string; desc: string }[] = [
+  { key: "statusChanges", label: "Page status changes", desc: "When someone on your project changes the status of a page (email)" },
   { key: "pageReady", label: "Page ready for you", desc: "When your agency assigns a page for you to fill in" },
   { key: "commentReply", label: "Comment replies", desc: "When someone replies to a comment on your content" },
   { key: "reviewResult", label: "Review results", desc: "When your submitted content is approved or needs changes" },

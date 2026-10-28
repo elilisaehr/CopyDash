@@ -11,7 +11,9 @@
 
 import * as React from "react";
 import { Icon } from "@/components/ui/icon";
-import { Btn, FieldTextarea, Modal, Spinner, StatusPicker } from "@/components/ui/primitives";
+import { Btn, FieldTextarea, Modal, Spinner, StatusBadge, StatusPicker } from "@/components/ui/primitives";
+import { ChangeNote, useReviewRound } from "@/components/features/review";
+import { changePageStatus } from "@/lib/actions/review";
 import { CommentButton } from "@/components/features/comments";
 import { AISuggestButton } from "@/components/features/ai-suggest";
 import { SEOToggle, SEOPanel, computeSEO } from "@/components/features/seo";
@@ -71,6 +73,10 @@ export function EditorScreen({
 }) {
   const [fields, setFields] = React.useState<Field[]>(() => [...initialFields].sort(byPosition));
   const [pageStatus, setPageStatus] = React.useState(page.status);
+  const [reviewVersion, setReviewVersion] = React.useState(0);
+  const round = useReviewRound(page.id, "fields", reviewVersion);
+  // Clients edit only while the page is with them (the database enforces it too).
+  const editable = role === "pm" || pageStatus === "In Progress";
   const [aiState, setAiState] = React.useState<AiState>("idle");
   const [aiMsgIdx, setAiMsgIdx] = React.useState(0);
   const [aiProgress, setAiProgress] = React.useState(0);
@@ -153,7 +159,7 @@ export function EditorScreen({
 
       const stillEmpty = currentFields.length > 0 && currentFields.every((f) => !f.content);
       const sourceText = page.pdf_text || project.extracted_text;
-      if (stillEmpty && sourceText) {
+      if (stillEmpty && sourceText && editable) {
         setTimeout(() => runAI(currentFields), 600);
       }
     })();
@@ -170,20 +176,37 @@ export function EditorScreen({
     await supabase.from("fields").update({ content }).eq("id", id);
   };
 
-  // ── Save (persists every field + the current status; mirrors the
-  // prototype's idle/saving/saved cycle, and covers the field the user
-  // is still focused on since local state is already current) ────────
-  const handleSave = async (overrideStatus?: PageStatus) => {
+  // ── Save (persists every field; mirrors the prototype's
+  // idle/saving/saved cycle, and covers the field the user is still
+  // focused on since local state is already current) ────────────────
+  const saveFields = async () => {
+    if (!editable) return;
+    const supabase = createClient();
+    await Promise.all(fields.map((f) => supabase.from("fields").update({ content: f.content }).eq("id", f.id)));
+  };
+
+  const handleSave = async () => {
     setSaveStatus("saving");
     const supabase = createClient();
-    const nextStatus = overrideStatus || pageStatus;
-    await Promise.all([
-      ...fields.map((f) => supabase.from("fields").update({ content: f.content }).eq("id", f.id)),
-      supabase.from("pages").update({ status: nextStatus, updated_by_name: user.name }).eq("id", page.id),
-      new Promise((r) => setTimeout(r, 500)),
-    ]);
+    await Promise.all([saveFields(), supabase.from("pages").update({ updated_by_name: user.name }).eq("id", page.id), new Promise((r) => setTimeout(r, 500))]);
     setSaveStatus("saved");
     setTimeout(() => setSaveStatus("idle"), 2500);
+  };
+
+  // ── Review flow ─────────────────────────────────────────────────
+  const changeFor = (f: Field) => {
+    const c = round?.changes[f.id];
+    return c && (c.before ?? "") !== (c.after ?? "") ? c : null;
+  };
+
+  // Status changes (agency menu, client "Submit for Review") save pending
+  // edits first, then go through the server action that emails the project.
+  const moveTo = async (next: PageStatus) => {
+    await saveFields();
+    const res = await changePageStatus(page.id, next);
+    if (!res.ok) return alert(res.error);
+    setPageStatus(next);
+    setReviewVersion((v) => v + 1);
   };
 
   const seoFields = React.useMemo(() => fields.map((f) => ({ id: f.field_key, content: f.content })), [fields]);
@@ -202,13 +225,7 @@ export function EditorScreen({
             <div style={{ fontSize: 14, fontWeight: 600, color: "#09090b", fontFamily: "var(--font-sans)" }}>{project.name}</div>
             <div style={{ fontSize: 11, color: "#71717b" }}>{page.name} page</div>
           </div>
-          <StatusPicker
-            status={pageStatus}
-            onChange={(next) => {
-              setPageStatus(next as PageStatus);
-              handleSave(next as PageStatus);
-            }}
-          />
+          {role === "pm" ? <StatusPicker status={pageStatus} onChange={(next) => moveTo(next as PageStatus)} /> : <StatusBadge status={pageStatus} />}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ fontSize: 12, color: "#a1a1aa", fontFamily: "var(--font-sans)" }}>
@@ -220,29 +237,10 @@ export function EditorScreen({
               <Btn variant="outline" size="sm" icon="download" onClick={() => setExportOpen(true)}>
                 Export PDF
               </Btn>
-              {pageStatus !== "Pending Review" && pageStatus !== "Completed" && (
-                <Btn
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setPageStatus("Pending Review");
-                    handleSave("Pending Review");
-                  }}
-                >
-                  Send for Review
-                </Btn>
-              )}
             </>
           )}
-          {role === "client" && pageStatus !== "Completed" && pageStatus !== "Pending Review" && (
-            <Btn
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setPageStatus("Pending Review");
-                handleSave("Pending Review");
-              }}
-            >
+          {role === "client" && pageStatus === "In Progress" && (
+            <Btn variant="outline" size="sm" onClick={() => moveTo("Pending Review")}>
               Submit for Review
             </Btn>
           )}
@@ -277,7 +275,7 @@ export function EditorScreen({
               <Icon name="edit" size={15} color="#71717b" />
               <span style={{ fontSize: 13, fontWeight: 600, color: "#09090b", fontFamily: "var(--font-sans)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Text Fields</span>
             </div>
-            <Btn variant="ghost" size="sm" icon="sparkles" onClick={() => runAI()} disabled={aiState === "processing"}>
+            <Btn variant="ghost" size="sm" icon="sparkles" onClick={() => runAI()} disabled={aiState === "processing" || !editable}>
               {aiState === "processing" ? "Processing…" : "Re-run AI"}
             </Btn>
           </div>
@@ -307,11 +305,13 @@ export function EditorScreen({
 
           {/* Fields List */}
           <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 20 }}>
-            {fields.map((field) => (
+            {fields.map((field) => {
+              const change = changeFor(field);
+              return (
               <div
                 key={field.id}
                 onClick={() => setActiveFieldId(field.id)}
-                onBlur={() => persistField(field.id, field.content)}
+                onBlur={() => editable && persistField(field.id, field.content)}
                 style={{
                   padding: 16,
                   borderRadius: 10,
@@ -341,9 +341,12 @@ export function EditorScreen({
                   placeholder={field.placeholder}
                   maxLength={field.max_chars}
                   rows={fieldRows(field.field_key)}
+                  disabled={!editable}
                 />
+                {change && <ChangeNote change={change} original="" />}
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>

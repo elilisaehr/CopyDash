@@ -60,9 +60,9 @@ export function PagesListScreen({
 
   const stats = [
     { label: "Total Pages", value: pages.length, icon: "file-text" },
+    { label: "Pending Review", value: pages.filter((p) => p.status === "Pending Review").length, icon: "eye", color: "#1d4ed8" },
+    { label: "In Progress", value: pages.filter((p) => p.status === "In Progress").length, icon: "clock", color: "#c2410c" },
     { label: "Completed", value: pages.filter((p) => p.status === "Completed").length, icon: "check-circle", color: "#15803d" },
-    { label: "In Progress", value: pages.filter((p) => p.status === "In Progress").length, icon: "zap", color: "#f59e0b" },
-    { label: "Pending Review", value: pages.filter((p) => p.status === "Pending Review").length, icon: "eye", color: "#0369a1" },
   ];
 
   const handleAddPage = async (data: NewPageData) => {

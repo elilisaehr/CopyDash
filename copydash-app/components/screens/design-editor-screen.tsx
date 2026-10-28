@@ -15,7 +15,8 @@
 
 import * as React from "react";
 import { Icon } from "@/components/ui/icon";
-import { Btn, FieldTextarea, StatusPicker, Spinner, Modal, SelectInput } from "@/components/ui/primitives";
+import { Btn, FieldTextarea, StatusBadge, StatusPicker, Spinner, Modal, SelectInput } from "@/components/ui/primitives";
+import { ChangeNote, useReviewRound } from "@/components/features/review";
 import { CommentButton } from "@/components/features/comments";
 import { computeSEO, SEOToggle, SEOPanel } from "@/components/features/seo";
 import { AISuggestButton } from "@/components/features/ai-suggest";
@@ -23,11 +24,12 @@ import { EditableBlock } from "@/components/features/editable-block";
 import { mockGenerateFieldSuggestions } from "@/lib/ai-mock";
 import { getPdfjs } from "@/lib/pdf";
 import { createClient } from "@/lib/supabase/client";
+import { changePageStatus } from "@/lib/actions/review";
 import { renderPdfDesign, joinLines, legacyLineIdPrefix, sampleBg, luminance, type DesignBlock, type RenderedPage, type BlockKind } from "@/lib/pdf-design";
 import { FONT_NAMES, cssFamily, fontForKind, useDesignFonts, useFontPreviews, useWebFonts, type DesignFonts } from "@/lib/design-fonts";
 import { useResizablePanel } from "@/hooks/use-resizable-panel";
 import { ResizeHandle } from "@/components/ui/resize-handle";
-import type { Project, Page, UserRole, FigmaDesign } from "@/lib/supabase/types";
+import type { Project, Page, PageStatus, UserRole, FigmaDesign } from "@/lib/supabase/types";
 
 const KIND_LABEL: Record<BlockKind, string> = {
   heading: "Heading",
@@ -105,7 +107,9 @@ export function DesignEditorScreen({
 
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [saveStatus, setSaveStatus] = React.useState<"idle" | "saving" | "saved">("idle");
-  const [pageStatus, setPageStatus] = React.useState<string>(page.status);
+  const [pageStatus, setPageStatus] = React.useState<PageStatus>(page.status);
+  const [reviewVersion, setReviewVersion] = React.useState(0);
+  const round = useReviewRound(page.id, "design_edits", reviewVersion);
   const [exportOpen, setExportOpen] = React.useState(false);
   const [fontsOpen, setFontsOpen] = React.useState(false);
   const [resyncError, setResyncError] = React.useState<string | null>(null);
@@ -127,7 +131,8 @@ export function DesignEditorScreen({
   });
   const fileRef = React.useRef<HTMLInputElement>(null);
 
-  const editable = role !== "pm" ? pageStatus !== "Completed" && pageStatus !== "Pending Review" : true;
+  // Clients edit only while the page is with them (the database enforces it too).
+  const editable = role === "pm" || pageStatus === "In Progress";
 
   // ── load existing design_edits for this page ────────────────────────────
   React.useEffect(() => {
@@ -422,13 +427,34 @@ export function DesignEditorScreen({
     [blocks, edits, page.name, project.name],
   );
 
-  const handleSave = async (overrideStatus?: string) => {
+  // Edits persist per block on blur; Save flushes the focused one and stamps the page.
+  const handleSave = async () => {
     setSaveStatus("saving");
-    const nextStatus = overrideStatus || pageStatus;
+    if (activeId) await persistBlock(activeId);
     const supabase = createClient();
-    await supabase.from("pages").update({ status: nextStatus, updated_by_name: user.name }).eq("id", page.id);
+    await supabase.from("pages").update({ updated_by_name: user.name }).eq("id", page.id);
     setSaveStatus("saved");
     setTimeout(() => setSaveStatus("idle"), 2200);
+  };
+
+  // Last-round changes, ignoring rows whose before/after are both the design's original text.
+  const changeFor = (b: DesignBlock) => {
+    const c = round?.changes[b.id];
+    return c && (c.before ?? b.text) !== (c.after ?? b.text) ? c : null;
+  };
+
+  const flushActive = async () => {
+    if (activeId) await persistBlock(activeId);
+  };
+
+  // Status changes (agency menu, client "Submit for Review") save pending
+  // edits first, then go through the server action that emails the project.
+  const moveTo = async (next: PageStatus) => {
+    await flushActive();
+    const res = await changePageStatus(page.id, next);
+    if (!res.ok) return alert(res.error);
+    setPageStatus(next);
+    setReviewVersion((v) => v + 1);
   };
 
   const handleReplace = async (file: File | null) => {
@@ -600,14 +626,7 @@ export function DesignEditorScreen({
               <Icon name="file-text" size={11} color="#a1a1aa" /> {page.name} · design
             </div>
           </div>
-          <StatusPicker
-            status={pageStatus}
-            onChange={(next) => {
-              setPageStatus(next);
-              handleSave(next);
-            }}
-            disabled={role === "client" && (pageStatus === "Completed" || pageStatus === "Pending Review")}
-          />
+          {role === "pm" ? <StatusPicker status={pageStatus} onChange={(next) => moveTo(next as PageStatus)} /> : <StatusBadge status={pageStatus} />}
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
@@ -643,29 +662,10 @@ export function DesignEditorScreen({
               <Btn variant="outline" size="sm" icon="download" onClick={() => setExportOpen(true)} disabled={!blocks.length}>
                 Export
               </Btn>
-              {pageStatus !== "Pending Review" && pageStatus !== "Completed" && (
-                <Btn
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setPageStatus("Pending Review");
-                    handleSave("Pending Review");
-                  }}
-                >
-                  Send for Review
-                </Btn>
-              )}
             </>
           )}
-          {role === "client" && editable && (
-            <Btn
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setPageStatus("Pending Review");
-                handleSave("Pending Review");
-              }}
-            >
+          {role === "client" && pageStatus === "In Progress" && (
+            <Btn variant="outline" size="sm" onClick={() => moveTo("Pending Review")}>
               Submit for Review
             </Btn>
           )}
@@ -854,6 +854,7 @@ export function DesignEditorScreen({
               </div>
             )}
             {blocks.map((b, i) => {
+              const change = changeFor(b);
               const field = fields[i];
               const edited = isEdited(b);
               const active = activeId === b.id;
@@ -891,7 +892,9 @@ export function DesignEditorScreen({
                   </div>
                   <FieldTextarea value={field.content} onChange={(v) => onChange(b.id, v)} maxLength={field.maxChars} rows={b.kind === "body" || b.kind === "lead" ? 3 : 2} disabled={!editable} />
                   {isParagraph(b) && <WordCount text={field.content} original={b.text} />}
-                  {edited && (
+                  {change ? (
+                    <ChangeNote change={change} original={b.text} />
+                  ) : edited && (
                     <div style={{ marginTop: 8, fontSize: 11, color: "#a1a1aa", fontFamily: "var(--font-body)", display: "flex", gap: 5, alignItems: "baseline" }}>
                       <span style={{ flexShrink: 0 }}>Original:</span>
                       <span style={{ textDecoration: "line-through", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.text}</span>

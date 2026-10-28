@@ -12,6 +12,7 @@
 - **pages** — a project's individual pages, each optionally carrying a PDF or Figma design.
 - **fields** — the Field Editor's structured content fields for a page (not currently populated from a fixed schema — see note below).
 - **design_edits** — in-place edits made on the Design Editor, keyed by a computed block id.
+- **page_handoffs** — history of a page's status changes (who handed it to whom, when) — migration 0008.
 - **figma_connections** — one Figma Personal Access Token per PM.
 - **figma_designs** — the fetched Figma frame (image + text blocks) for a page.
 - **comments** — per-field discussion thread entries.
@@ -69,7 +70,7 @@ Indexes: `client_id`; `lower(address)` (used for the auto-link match).
 | pm_id | uuid, FK → `auth.users` | yes | — |
 | client_id | uuid, FK → `clients`, on delete set null | no | — |
 | name | text | yes | — |
-| status | text, check in (`Draft`,`In Progress`,`Pending Review`,`Completed`) | yes | `'Draft'` |
+| status | text, check in (`Draft`,`In Progress`,`Pending Review`,`Completed`) — **legacy, not shown**: the app derives a project's status from its pages (`lib/review.ts: projectStatus`) | yes | `'Draft'` |
 | pdf_filename, pdf_storage_path, extracted_text | text | no | — |
 | archived_at | timestamptz | no | null |
 | created_at / updated_at | timestamptz | yes | `now()` |
@@ -91,7 +92,7 @@ PK: `(project_id, user_id)`.
 | id | uuid, PK | yes | `gen_random_uuid()` |
 | project_id | uuid, FK → `projects`, cascade | yes | — |
 | name | text | yes | — |
-| status | text, same check as `projects.status` | yes | `'Draft'` |
+| status | text, check in (`Draft`,`In Progress`,`Pending Review`,`Completed`) — the review flow (0008): In Progress = with the client, Pending Review = with the agency | yes | `'Draft'` |
 | template | text | no | `'custom'` |
 | pdf_text, pdf_filename, pdf_storage_path | text | no | — |
 | has_pdf_design | boolean | yes | `false` |
@@ -115,6 +116,8 @@ Index: `project_id`.
 | max_chars | integer | yes | `200` |
 | placeholder | text | no | `''` |
 | position | integer | yes | `0` |
+| updated_at, updated_by, updated_by_name | last content change and who made it (trigger `stamp_copy_editor`, 0008) | — | — |
+| baseline, prev_baseline | text at the latest hand-off / the one before (null = empty) — "what changed in the last round" | no | null |
 
 Unique: `(page_id, field_key)`. Index: `page_id`.
 
@@ -127,8 +130,23 @@ Unique: `(page_id, field_key)`. Index: `page_id`.
 | block_id | text | yes | — |
 | content | text | yes | `''` |
 | updated_at | timestamptz | yes | `now()` |
+| updated_by, updated_by_name | who last changed `content` (trigger `stamp_copy_editor`, 0008) | no | — |
+| baseline, prev_baseline | text at the latest hand-off / the one before (null = the design's original text) | no | null |
 
 PK: `(page_id, block_id)`. For PDF designs, `block_id` is computed client-side from the block's text + its position at 100% zoom (see `lib/pdf-design.ts: buildBlocks`) — stable across zoom levels and screen widths, but **not stable across a design's content changing**. Rows saved before the paragraph-merge fix are keyed per line (and, back then, per zoom level); the Design Editor carries them over onto the paragraph that now contains that line (matched on page + line-text hash) and deletes them when that block is reset.
+
+### `page_handoffs` (0008)
+| Field | Type | Required |
+|---|---|---|
+| id | uuid, PK | yes |
+| page_id | uuid, FK → `pages`, cascade | yes |
+| project_id | uuid, FK → `projects`, cascade | yes |
+| from_status, to_status | text | yes |
+| actor_id | uuid, FK → `auth.users`, set null | no |
+| actor_name | text | no |
+| created_at | timestamptz, default `now()` | yes |
+
+Written only by the `record_page_handoff` trigger (after a page's status changes), which also snapshots every `fields`/`design_edits` row of the page: `prev_baseline := baseline, baseline := content`. Readable by the project's people (agency + clients).
 
 ### `figma_connections`
 | Field | Type | Required |
@@ -229,7 +247,8 @@ All tables have RLS enabled. The general pattern:
 - **PMs** get full read/write access to rows where `pm_id = auth.uid()` (directly, or via a helper function like `is_pm_of_project()`/`is_pm_of_page()`/`is_pm_of_client()` for child tables).
 - **Clients** (project members) get:
   - **Read** access to their project, its pages, fields, design edits, comments, and their PM's branding.
-  - **Write** access limited to: updating `pages` (status), `fields` (content), `design_edits` (insert + update — i.e. they can edit copy but the row structure is PM-controlled), and inserting their own `comments`.
+  - **Write** access limited to: `fields` (content) and `design_edits` (insert + update) **only while the page is `In Progress`** (restrictive policies via `can_edit_page_copy()`, 0008), moving a page from `In Progress` to `Pending Review` (trigger `pages_b_review_guard` — any other change to the page row is refused), and inserting their own `comments`.
+  - Agency people (admins, editors — `is_agency_of_project()`) can move a page to any status.
 - `activity_log`, `team_invitations`, `figma_connections` are **PM-only**, no client access at all.
 - Storage (`pdfs` bucket): same pattern via a `is_pm_of_project()`/`is_member_of_project()` check on the path's leading folder (`{project_id}/...`).
 

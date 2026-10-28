@@ -17,7 +17,7 @@ export function ClientDashboardScreen({
   pages: Page[];
 }) {
   const firstName = userName?.split(" ")[0] || "there";
-  const waiting = pages.filter((p) => p.status === "In Progress" || p.status === "Draft").length;
+  const waiting = pages.filter((p) => p.status === "In Progress").length;
   const completed = pages.filter((p) => p.status === "Completed").length;
   const pct = pages.length ? Math.round((completed / pages.length) * 100) : 0;
 
@@ -55,7 +55,7 @@ export function ClientDashboardScreen({
 
   return (
     <>
-      <PageHeader title={`Welcome, ${firstName}`} subtitle={`You have ${waiting} pages waiting for your input`} />
+      <PageHeader title={`Welcome, ${firstName}`} subtitle={waiting ? `It's your turn on ${waiting} ${waiting === 1 ? "page" : "pages"}` : "Nothing waiting for you right now"} />
 
       <div style={{ padding: "24px 48px 48px", flex: 1, overflowY: "auto" }}>
         {/* Project progress card */}
@@ -102,7 +102,8 @@ export function ClientDashboardScreen({
           </Card>
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
-            {pages.map((pg) => (
+            {/* Pages where it's the client's turn come first (sort is stable). */}
+            {[...pages].sort((a, b) => Number(b.status === "In Progress") - Number(a.status === "In Progress")).map((pg) => (
               <ClientPageCard key={pg.id} page={pg} />
             ))}
           </div>
@@ -140,7 +141,7 @@ export function ClientDashboardScreen({
             </div>
             <div>
               <div style={{ fontSize: 13, fontWeight: 600, color: "#09090b", fontFamily: "var(--font-sans)" }}>Need help filling in your content?</div>
-              <div style={{ fontSize: 12, color: "#71717b", fontFamily: "var(--font-body)" }}>Click on any page to start editing. Changes are saved automatically.</div>
+              <div style={{ fontSize: 12, color: "#71717b", fontFamily: "var(--font-body)" }}>Open a page marked &ldquo;Your turn&rdquo; to edit it, then submit it for review. Changes are saved automatically.</div>
             </div>
           </div>
           <Link href="/client/help" style={{ textDecoration: "none" }}>
@@ -154,17 +155,18 @@ export function ClientDashboardScreen({
   );
 }
 
-const STATUS_ACTION: Record<string, { label: string; color: string; bg: string; editable: boolean }> = {
-  Draft: { label: "Start editing", color: "#71717b", bg: "#f4f4f5", editable: true },
-  "In Progress": { label: "Continue editing", color: "#f59e0b", bg: "#fef9c3", editable: true },
-  "Pending Review": { label: "Under review", color: "#0369a1", bg: "#eff6ff", editable: false },
-  Completed: { label: "Completed", color: "#15803d", bg: "#dcfce7", editable: false },
+// `yourTurn` pages are the ones to act on; the others still open, read-only.
+const STATUS_ACTION: Record<string, { label: string; color: string; bg: string; yourTurn: boolean }> = {
+  Draft: { label: "Being prepared by your agency", color: "#71717b", bg: "#f4f4f5", yourTurn: false },
+  "In Progress": { label: "Your turn — edit this page", color: "#f59e0b", bg: "#fef9c3", yourTurn: true },
+  "Pending Review": { label: "Your agency is reviewing it", color: "#1d4ed8", bg: "#eff6ff", yourTurn: false },
+  Completed: { label: "Completed", color: "#15803d", bg: "#dcfce7", yourTurn: false },
 };
 
 function ClientPageCard({ page }: { page: Page }) {
   const [hov, setHov] = React.useState(false);
   const info = STATUS_ACTION[page.status] || STATUS_ACTION.Draft;
-  const isEditable = info.editable;
+  const isEditable = info.yourTurn;
   const lastEdited = page.updated_by_name ? `Last edited ${formatDate(page.updated_at)}` : "Not started yet";
 
   const content = (
@@ -176,7 +178,7 @@ function ClientPageCard({ page }: { page: Page }) {
         border: `1px solid ${hov && isEditable ? "#c4b4ff" : "#e4e4e7"}`,
         borderRadius: 12,
         padding: 20,
-        cursor: isEditable ? "pointer" : "default",
+        cursor: "pointer",
         boxShadow: hov && isEditable ? "0 4px 16px rgba(127,34,254,0.1)" : "0 1px 2px rgba(0,0,0,0.05)",
         transition: "all 0.15s",
         height: "100%",
@@ -208,8 +210,6 @@ function ClientPageCard({ page }: { page: Page }) {
       </div>
     </div>
   );
-
-  if (!isEditable) return content;
 
   return (
     <Link href={`/client/pages/${page.id}`} style={{ textDecoration: "none", display: "block" }}>

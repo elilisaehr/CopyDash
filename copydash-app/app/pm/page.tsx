@@ -3,9 +3,10 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile, getUser } from "@/lib/auth";
 import { getWorkspaceContext } from "@/lib/workspace";
 import { PmOverviewScreen, type ProjectWithStats } from "@/components/screens/pm-overview-screen";
-import type { Client, Project } from "@/lib/supabase/types";
+import { projectStatus } from "@/lib/review";
+import type { Client, PageStatus, Project } from "@/lib/supabase/types";
 
-type ProjectRow = Project & { client: Pick<Client, "name"> | null; pages: { status: string }[] };
+type ProjectRow = Project & { client: Pick<Client, "name"> | null; pages: { status: PageStatus }[] };
 
 export default async function PmDashboardPage() {
   const supabase = await createClient();
@@ -36,8 +37,10 @@ export default async function PmDashboardPage() {
   const projects: ProjectWithStats[] = ((projectRows ?? []) as ProjectRow[]).map(({ client, pages, ...rest }) => ({
     ...rest,
     clientName: client?.name ?? "—",
+    status: projectStatus(pages),
     pageCount: pages.length,
     completedPageCount: pages.filter((p) => p.status === "Completed").length,
+    toReviewCount: pages.filter((p) => p.status === "Pending Review").length,
   }));
 
   const hour = new Date().getHours();

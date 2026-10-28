@@ -44,6 +44,7 @@ type TabId = (typeof TABS)[number]["id"];
 const ADMIN_TABS: TabId[] = ["team", "branding", "archive"];
 
 export type PmNotifPrefs = {
+  statusChanges: boolean;
   clientUpdates: boolean;
   comments: boolean;
   projectComplete: boolean;
@@ -51,6 +52,7 @@ export type PmNotifPrefs = {
 };
 
 export const PM_NOTIF_DEFAULTS: PmNotifPrefs = {
+  statusChanges: true,
   clientUpdates: true,
   comments: true,
   projectComplete: true,
@@ -225,6 +227,7 @@ function AccountTab({ profile }: { profile: Profile }) {
 
 // ── Notifications ────────────────────────────────────────────────
 const NOTIF_ITEMS: { key: keyof PmNotifPrefs; label: string; desc: string }[] = [
+  { key: "statusChanges", label: "Page status changes", desc: "When someone on a project changes the status of a page (email)" },
   { key: "clientUpdates", label: "Client content updates", desc: "When a client fills in or edits a field" },
   { key: "comments", label: "New comments", desc: "When someone adds a comment to a field" },
   { key: "projectComplete", label: "Project completed", desc: "When all pages reach 100% completion" },

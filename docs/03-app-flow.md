@@ -27,7 +27,7 @@
 
 | Screen | Route | Purpose | Required data |
 |---|---|---|---|
-| Client dashboard | `/client` | The one project they're linked to, with its pages | `projects` (via `project_members`), `pages` |
+| Client dashboard | `/client` | The one project they're linked to, with its pages ("Your turn" pages first) | `projects` (via `project_members`), `pages` |
 | Client page editor | `/client/pages/[pageId]` | Same Design/Field editor, role-gated to editing permissions | `pages`, `design_edits`/`fields` |
 | Settings | `/client/settings` | Account only | `profiles` |
 | Help & Support | `/client/help` | Static help content | — |
@@ -39,9 +39,12 @@
 3. **Create a project** (`/pm/projects/new`) → name + pick the client → lands on the project's empty Pages list.
 4. **Add a page** → choose PDF upload or Figma import (if connected) → page created with that design attached.
 5. **Edit content** on the Design Editor (click text in place) or the Field Editor (structured list) → auto-saves per block/field.
-6. **Mark the page "Pending Review"** → the linked client now sees it awaiting their input on their dashboard.
-7. **Client reviews/edits**, PM is notified via the activity feed (no real email yet — see TRD).
-8. **PM marks the page "Completed"** → **Export** (PDF/JSON/CSV) to hand off to developers.
+6. **Set the status to In Progress** (status menu in the editor header) → the client sees "Your turn" on their dashboard. Every status change emails everyone else on the project ("X changed the status of the Y page to Z").
+7. **Client edits, then "Submit for Review"** (header button) → page becomes **Pending Review** and locks for the client; the dashboard's "Pages to review" counts it.
+8. **Agency reviews**: each text the client changed shows who changed it and "Before: …" → status **Completed**, or back to **In Progress** (the client then sees what the agency changed).
+9. **Export** (PDF/JSON/CSV) to hand off to developers.
+
+Page statuses: **Draft** (agency preparing; client can read only) → **In Progress** (with the client: their turn) → **Pending Review** (with the agency: its turn) → **Completed** (final; the agency can "Reopen for the client"). A project's status is the most urgent of its pages' statuses.
 
 ## Alternate journeys
 

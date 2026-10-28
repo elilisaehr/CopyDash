@@ -31,7 +31,19 @@
 
 ## Next up — product decisions of 2026-10-23 (in this order)
 
-### Status (paused 2026-10-23) — branch `feat/workspaces-roles`, not pushed, not deployed
+### Status (2026-10-28)
+
+- **A + speed pass — released** (PR #2, merged 2026-10-28; `0007` applied on prod).
+- **B Clearer review — built on branch `feat/clearer-review`, browser-tested on dev, not released yet.**
+  - Page statuses keep their names — Draft → In Progress (with the client) → Pending Review (with the agency) → Completed — but each now means a turn (migration `0008_review_flow.sql`; the user preferred these names over With client / To review / Approved). The database decides who may move a page: the agency anywhere, a client only "submit" a page that is In Progress; clients can edit copy only while the page is In Progress.
+  - No banner (the user asked to remove it): the agency changes status with the status menu in the editor header, the client with a "Submit for Review" button (shown while the page is In Progress). Both go through `lib/actions/review.ts`.
+  - "What changed": each status change snapshots the copy; once a page has gone back and forth, each text changed in the last round shows "Changed by X — Before: …".
+  - Email alert on every status change to everyone on the project (workspace admins, project editors, project clients) except the person who made it: "X changed the status of the Y page to Z". Switch "Page status changes" in Settings → Notifications (both sides). Same Resend limit as invitations.
+  - Project status is now derived from its pages (Pending Review > In Progress > Completed > Draft); dashboards count "pages to review".
+  - Permission tests: `supabase/dev/review-test.cjs` (run by `rebuild.sh`).
+  - **Release checklist:** (1) paste `0008_review_flow.sql` into the **prod** SQL editor — backward compatible with the deployed code, apply before merging; (2) PR + Vercel preview; (3) merge.
+
+### Earlier status — A (paused 2026-10-23)
 
 - **A1 Database — done.** Migration `0007_workspaces_roles.sql` (workspaces, workspace_members, project_members.role, invitations, plan_limits, backfill, RLS, plan-limit triggers). Also fixes a live hole: the old `pm_id` policies let any signed-in user write projects/clients into someone else's workspace.
 - **A2 App by role — done.** Workspace-scoped queries (`lib/workspace.ts`), admin-only routes/actions, plan-limit notices (`lib/plan.ts`).
@@ -39,7 +51,7 @@
 - **Speed pass — done (2026-10-28).** Server functions pinned to Frankfurt (`vercel.json`, next to the prod DB — they were running in Washington), per-request dedupe of session/profile/workspace reads, parallel + joined queries, loading skeletons. The region change only applies once this branch is deployed.
 - **A3 Invitations — done (2026-10-28), browser-tested on dev.** Settings → Team lists members (owner, admins, editors + their projects), pending invitations (copy link / resend / cancel) and an invite form (Editor / Admin / Client + projects). Clients → card menu "Send invite" / "Copy invite link" invites the client's primary email to all its projects. Actions in `lib/actions/invitations.ts`; email via Resend REST in `lib/email.ts` (best-effort: if it fails, the admin gets the link to share). `/invite/[token]` (service role, `app/invite/[token]/actions.ts`) creates the account for the invited email or signs an existing one in, grants workspace/project membership, marks the client company Active. Sign-up is now agency-only (no Client choice). `team_invitations` is no longer used.
   - **Before inviting real people:** verify a sending domain in Resend and set `RESEND_FROM` (e.g. `CopyDash <invites@yourdomain>`); until then Resend only delivers to the Resend account owner's address. Add `RESEND_API_KEY` (and `RESEND_FROM`) to Vercel's environment variables. Optional `NEXT_PUBLIC_SITE_URL` fixes the link host (otherwise taken from the request).
-- **Next: B (clearer review).**
+- **Next after B: C (export for developers).**
 - **Dev environment:** `npm run dev` uses the `copydash-dev` Supabase project via `copydash-app/.env.development.local`; prod stays on `.env.local`. Dev test accounts: pm1 / pm2 / client1 / editor1 / newpm `@copydash.test` (password `Test-1234!`), created by the scratch seed script.
 - **Release checklist for A (when done):** (1) paste `0007_workspaces_roles.sql` into the **prod** Supabase SQL editor — it's backward compatible with the deployed code, so apply it *before* merging; (2) open a PR, check the Vercel preview with a real account; (3) merge. Existing PMs become admins on the 'pro' plan.
 - Later: decide paid plan limits/prices (D), then Stripe; mixed text styles (Milestone 4).
@@ -51,7 +63,7 @@
 - Onboarding: a short first-login wizard — agency name → first project → first page (PDF or Figma) → lands in the editor; inviting someone is offered at the end, optional.
 
 **B. Clearer review**
-- Statuses that say who must act: Draft → With client → To review (agency) → Approved, replacing the two-way "Pending Review"; a clear "your turn" banner.
+- Statuses that say who must act: Draft → In Progress (client) → Pending Review (agency) → Completed.
 - Show what changed since the last hand-off (before/after, who edited what).
 - Email notification when it's someone's turn (uses A's email provider).
 
