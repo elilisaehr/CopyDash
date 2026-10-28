@@ -39,8 +39,8 @@ export default async function PmDashboardPage() {
     clientName: client?.name ?? "—",
     status: projectStatus(pages),
     pageCount: pages.length,
-    completedPageCount: pages.filter((p) => p.status === "Approved").length,
-    toReviewCount: pages.filter((p) => p.status === "To review").length,
+    completedPageCount: pages.filter((p) => p.status === "Completed").length,
+    toReviewCount: pages.filter((p) => p.status === "Pending Review").length,
   }));
 
   const hour = new Date().getHours();

@@ -29,8 +29,8 @@ export default async function PmProjectsPage() {
     clientName: client?.name ?? "—",
     status: projectStatus(pages),
     pageCount: pages.length,
-    completedPageCount: pages.filter((p) => p.status === "Approved").length,
-    toReviewCount: pages.filter((p) => p.status === "To review").length,
+    completedPageCount: pages.filter((p) => p.status === "Completed").length,
+    toReviewCount: pages.filter((p) => p.status === "Pending Review").length,
   }));
 
   return <PmProjectsScreen projects={projects} isAdmin={ctx.role === "admin"} />;

@@ -39,7 +39,7 @@ export async function changePageStatus(pageId: string, next: PageStatus): Promis
   if (error || !page) return { ok: false, error: error?.message || "You can't change this page's status." };
 
   const event: ReviewEvent | null =
-    next === "With client" ? (before.status === "To review" ? "sent_back" : "sent") : next === "To review" ? "submitted" : next === "Approved" ? "approved" : null;
+    next === "In Progress" ? (before.status === "Pending Review" ? "sent_back" : "sent") : next === "Pending Review" ? "submitted" : next === "Completed" ? "approved" : null;
 
   let notified = 0;
   if (event) {

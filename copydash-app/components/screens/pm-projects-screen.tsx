@@ -19,7 +19,7 @@ export interface ProjectWithStats extends Omit<Project, "status"> {
   toReviewCount: number;
 }
 
-const FILTER_TABS = ["All", "To review", "With client", "Draft", "Approved"] as const;
+const FILTER_TABS = ["All", "Pending Review", "In Progress", "Draft", "Completed"] as const;
 type FilterTab = (typeof FILTER_TABS)[number];
 
 export function PmProjectsScreen({ projects, isAdmin }: { projects: ProjectWithStats[]; /** Editors can't create, rename or archive projects. */ isAdmin: boolean }) {
@@ -49,9 +49,9 @@ export function PmProjectsScreen({ projects, isAdmin }: { projects: ProjectWithS
 
   const stats = [
     { label: "Total Projects", value: projects.length, icon: "folder-open", subtitle: "All time" },
-    { label: "To review", value: projects.filter((p) => p.status === "To review").length, icon: "eye", color: "#1d4ed8", subtitle: "Your turn" },
-    { label: "With client", value: projects.filter((p) => p.status === "With client").length, icon: "clock", color: "#c2410c", subtitle: "Client's turn" },
-    { label: "Approved", value: projects.filter((p) => p.status === "Approved").length, icon: "check-circle", color: "#15803d", subtitle: "Every page approved" },
+    { label: "Pending Review", value: projects.filter((p) => p.status === "Pending Review").length, icon: "eye", color: "#1d4ed8", subtitle: "Your turn" },
+    { label: "In Progress", value: projects.filter((p) => p.status === "In Progress").length, icon: "clock", color: "#c2410c", subtitle: "Client's turn" },
+    { label: "Completed", value: projects.filter((p) => p.status === "Completed").length, icon: "check-circle", color: "#15803d", subtitle: "Every page completed" },
   ];
 
   return (

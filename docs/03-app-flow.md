@@ -39,12 +39,12 @@
 3. **Create a project** (`/pm/projects/new`) → name + pick the client → lands on the project's empty Pages list.
 4. **Add a page** → choose PDF upload or Figma import (if connected) → page created with that design attached.
 5. **Edit content** on the Design Editor (click text in place) or the Field Editor (structured list) → auto-saves per block/field.
-6. **Send to client** (banner at the top of the editor) → page becomes **With client**; the client gets an email and sees "Your turn" on their dashboard.
-7. **Client edits, then "Submit for review"** → page becomes **To review** and locks for the client; the agency (admins + project editors) gets an email, and the dashboard's "Pages to review" counts it.
-8. **Agency reviews**: the banner says how many texts changed ("Show only changes", each with "Before: …" and who changed it) → **Approve** (client gets an email) or **Send back to client** (client gets an email and sees what the agency changed).
+6. **Send to client** (banner at the top of the editor) → page becomes **In Progress**; the client gets an email and sees "Your turn" on their dashboard.
+7. **Client edits, then "Submit for review"** → page becomes **Pending Review** and locks for the client; the agency (admins + project editors) gets an email, and the dashboard's "Pages to review" counts it.
+8. **Agency reviews**: the banner says how many texts changed ("Show only changes", each with "Before: …" and who changed it) → **Approve**, which marks it Completed (client gets an email) or **Send back to client** (client gets an email and sees what the agency changed).
 9. **Export** (PDF/JSON/CSV) to hand off to developers.
 
-Page statuses: **Draft** (agency preparing; client can read only) → **With client** (client's turn) → **To review** (agency's turn) → **Approved** (final; the agency can "Reopen for the client"). A project's status is the most urgent of its pages' statuses.
+Page statuses: **Draft** (agency preparing; client can read only) → **In Progress** (with the client: their turn) → **Pending Review** (with the agency: its turn) → **Completed** (final; the agency can "Reopen for the client"). A project's status is the most urgent of its pages' statuses.
 
 ## Alternate journeys
 

@@ -32,7 +32,7 @@ export function useReviewRound(pageId: string, table: "design_edits" | "fields",
       ]);
       if (cancelled) return;
       const latest = (handoffs as Handoff[] | null)?.[0];
-      if (!latest || (handoffs?.length ?? 0) < 2 || (latest.to_status !== "To review" && latest.to_status !== "With client")) {
+      if (!latest || (handoffs?.length ?? 0) < 2 || (latest.to_status !== "Pending Review" && latest.to_status !== "In Progress")) {
         setRound(null);
         return;
       }
@@ -70,36 +70,36 @@ function describe(role: UserRole, status: PageStatus, who: string | null, change
     switch (status) {
       case "Draft":
         return { tone: "waiting", title: "Your agency is still preparing this page.", detail: "You'll get an email when it's your turn to edit it.", moves: [] };
-      case "With client":
+      case "In Progress":
         return {
           tone: "turn",
           title: "Your turn: edit the texts, then submit them for review.",
           detail: who ? `${who} sent this page back to you.${changedText}` : "Your edits save as you go. Submitting hands the page to your agency.",
-          moves: [{ label: "Submit for review", to: "To review", variant: "primary" }],
+          moves: [{ label: "Submit for review", to: "Pending Review", variant: "primary" }],
         };
-      case "To review":
+      case "Pending Review":
         return { tone: "waiting", title: "Submitted — your agency is reviewing this page.", detail: "You'll get an email if they send it back to you.", moves: [] };
       default:
-        return { tone: "done", title: "Approved — this page is final.", detail: "Nothing more to do here.", moves: [] };
+        return { tone: "done", title: "Completed — this page is final.", detail: "Nothing more to do here.", moves: [] };
     }
   }
   switch (status) {
     case "Draft":
-      return { tone: "turn", title: "Draft — only your team works on this page.", detail: "Send it to the client when it's ready for their input.", moves: [{ label: "Send to client", to: "With client", variant: "primary" }] };
-    case "With client":
+      return { tone: "turn", title: "Draft — only your team works on this page.", detail: "Send it to the client when it's ready for their input.", moves: [{ label: "Send to client", to: "In Progress", variant: "primary" }] };
+    case "In Progress":
       return { tone: "waiting", title: "With the client — it's their turn.", detail: "They'll submit it when they're done. You can still edit.", moves: [{ label: "Back to draft", to: "Draft", variant: "outline" }] };
-    case "To review":
+    case "Pending Review":
       return {
         tone: "turn",
         title: "Your turn: review this page.",
         detail: `${who ? `${who} submitted it.` : "The client submitted it."}${changedText}`,
         moves: [
-          { label: "Send back to client", to: "With client", variant: "outline" },
-          { label: "Approve", to: "Approved", variant: "primary" },
+          { label: "Send back to client", to: "In Progress", variant: "outline" },
+          { label: "Approve", to: "Completed", variant: "primary" },
         ],
       };
     default:
-      return { tone: "done", title: "Approved — this page is final.", detail: "Reopen it if the client needs to change something.", moves: [{ label: "Reopen for the client", to: "With client", variant: "outline" }] };
+      return { tone: "done", title: "Completed — this page is final.", detail: "Reopen it if the client needs to change something.", moves: [{ label: "Reopen for the client", to: "In Progress", variant: "outline" }] };
   }
 }
 

@@ -2,43 +2,14 @@
 -- hand-off history, and "what changed in the last round".
 -- Run after 0007_workspaces_roles.sql.
 --
--- Page statuses:
---   'Draft'       agency is preparing the page (client can read, not edit)
---   'With client' client's turn to edit, then submit
---   'To review'   agency's turn: approve or send back to the client
---   'Approved'    final
+-- Page statuses keep their names (pages_status_check from 0001), each now
+-- meaning a turn:
+--   'Draft'          agency is preparing the page (client can read, not edit)
+--   'In Progress'    with the client: their turn to edit, then submit
+--   'Pending Review' with the agency: complete it or send it back
+--   'Completed'      final
 --
--- Backward compatible with the code deployed before it: the old names
--- ('In Progress', 'Pending Review', 'Completed') are translated on write.
-
--- ── statuses ──────────────────────────────────────────────────────────
-alter table public.pages drop constraint if exists pages_status_check;
-update public.pages set status = case status
-  when 'In Progress' then 'With client'
-  when 'Pending Review' then 'To review'
-  when 'Completed' then 'Approved'
-  else status end
-where status in ('In Progress', 'Pending Review', 'Completed');
-
--- Triggers fire in name order: normalize (a) runs before the guard (b).
-create or replace function public.pages_a_normalize_status()
-returns trigger language plpgsql as $$
-begin
-  new.status := case new.status
-    when 'In Progress' then 'With client'
-    when 'Pending Review' then 'To review'
-    when 'Completed' then 'Approved'
-    else new.status end;
-  return new;
-end;
-$$;
-drop trigger if exists pages_a_normalize_status on public.pages;
-create trigger pages_a_normalize_status
-  before insert or update of status on public.pages
-  for each row execute function public.pages_a_normalize_status();
-
-alter table public.pages add constraint pages_status_check
-  check (status in ('Draft', 'With client', 'To review', 'Approved'));
+-- Backward compatible with the code deployed before it.
 
 -- ── who may do what ───────────────────────────────────────────────────
 -- Agency people (admins, editors) can move a page to any status. A client
@@ -56,7 +27,7 @@ begin
     return new;
   end if;
   if new.status is distinct from old.status
-     and not (old.status = 'With client' and new.status = 'To review') then
+     and not (old.status = 'In Progress' and new.status = 'Pending Review') then
     raise exception 'Only your agency can move this page to "%".', new.status using errcode = '42501';
   end if;
   if (to_jsonb(new) - 'status' - 'updated_by_name' - 'updated_at')
@@ -77,20 +48,26 @@ returns boolean language sql stable security definer set search_path = public as
   select exists (
     select 1 from public.pages pg
     where pg.id = p_page_id
-      and (pg.status = 'With client' or public.is_agency_of_project(pg.project_id))
+      and (pg.status = 'In Progress' or public.is_agency_of_project(pg.project_id))
   );
 $$;
 
+drop policy if exists "design_edits: clients only on their turn (insert)" on public.design_edits;
 create policy "design_edits: clients only on their turn (insert)" on public.design_edits
   as restrictive for insert with check (public.can_edit_page_copy(page_id));
+drop policy if exists "design_edits: clients only on their turn (update)" on public.design_edits;
 create policy "design_edits: clients only on their turn (update)" on public.design_edits
   as restrictive for update using (public.can_edit_page_copy(page_id)) with check (public.can_edit_page_copy(page_id));
+drop policy if exists "design_edits: clients only on their turn (delete)" on public.design_edits;
 create policy "design_edits: clients only on their turn (delete)" on public.design_edits
   as restrictive for delete using (public.can_edit_page_copy(page_id));
+drop policy if exists "fields: clients only on their turn (insert)" on public.fields;
 create policy "fields: clients only on their turn (insert)" on public.fields
   as restrictive for insert with check (public.can_edit_page_copy(page_id));
+drop policy if exists "fields: clients only on their turn (update)" on public.fields;
 create policy "fields: clients only on their turn (update)" on public.fields
   as restrictive for update using (public.can_edit_page_copy(page_id)) with check (public.can_edit_page_copy(page_id));
+drop policy if exists "fields: clients only on their turn (delete)" on public.fields;
 create policy "fields: clients only on their turn (delete)" on public.fields
   as restrictive for delete using (public.can_edit_page_copy(page_id));
 
@@ -148,6 +125,7 @@ create table if not exists public.page_handoffs (
 create index if not exists page_handoffs_page_idx on public.page_handoffs (page_id, created_at desc);
 
 alter table public.page_handoffs enable row level security;
+drop policy if exists "page_handoffs: project people read" on public.page_handoffs;
 create policy "page_handoffs: project people read" on public.page_handoffs for select
   using (public.is_member_of_project(project_id) or public.is_pm_of_project(project_id));
 
@@ -187,9 +165,9 @@ begin
       v_pm_id, new.project_id, coalesce(v_actor, 'Someone'), 'page_status',
       new.name || ' page ' ||
         case new.status
-          when 'With client' then case when old.status = 'To review' then 'sent back to the client' else 'sent to the client' end
-          when 'To review' then 'submitted for review'
-          when 'Approved' then 'approved'
+          when 'In Progress' then case when old.status = 'Pending Review' then 'sent back to the client' else 'sent to the client' end
+          when 'Pending Review' then 'submitted for review'
+          when 'Completed' then 'completed'
           else 'moved back to draft'
         end ||
       ' — ' || v_project_name

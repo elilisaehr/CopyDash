@@ -20,7 +20,7 @@ type Greeting = "morning" | "afternoon" | "evening";
 
 function activityVisual(entry: ActivityLogEntry): { icon: string; color: string; bg: string } {
   if (entry.type === "page_status") {
-    return entry.text.includes("approved") || entry.text.includes("completed")
+    return entry.text.includes("completed")
       ? { icon: "check-circle", color: "#15803d", bg: "#f0fdf4" }
       : { icon: "edit", color: "#7f22fe", bg: "#f5f3ff" };
   }
@@ -49,8 +49,8 @@ export function PmOverviewScreen({
   const completedPages = projects.reduce((s, p) => s + p.completedPageCount, 0);
   const recentProjects = [...projects].sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1)).slice(0, 3);
   const needsAttention = projects.filter((p) => p.toReviewCount > 0);
-  const activeCount = projects.filter((p) => p.status !== "Approved").length;
-  const completedCount = projects.filter((p) => p.status === "Approved").length;
+  const activeCount = projects.filter((p) => p.status !== "Completed").length;
+  const completedCount = projects.filter((p) => p.status === "Completed").length;
   const toReview = projects.reduce((s, p) => s + p.toReviewCount, 0);
 
   return (
@@ -71,7 +71,7 @@ export function PmOverviewScreen({
         {/* KPI row */}
         <div style={{ display: "flex", gap: 16, marginBottom: 32 }}>
           <KPICard label="Active Projects" value={activeCount} icon="folder-open" subtitle={`${projects.length} total`} />
-          <KPICard label="Pages Approved" value={`${completedPages}/${totalPages}`} icon="file-text" color="#0369a1" subtitle="across all projects" />
+          <KPICard label="Pages Completed" value={`${completedPages}/${totalPages}`} icon="file-text" color="#0369a1" subtitle="across all projects" />
           <KPICard
             label="Pages to Review"
             value={toReview}
@@ -79,7 +79,7 @@ export function PmOverviewScreen({
             color={toReview > 0 ? "#f59e0b" : "#15803d"}
             subtitle={toReview > 0 ? "Your turn" : "All clear"}
           />
-          <KPICard label="Approved Projects" value={completedCount} icon="check-circle" color="#15803d" subtitle="every page approved" />
+          <KPICard label="Completed Projects" value={completedCount} icon="check-circle" color="#15803d" subtitle="every page completed" />
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 24 }}>

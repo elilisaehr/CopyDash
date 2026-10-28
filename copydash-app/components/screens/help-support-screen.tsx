@@ -63,11 +63,11 @@ const FAQS = [
   },
   {
     q: "What do the status labels mean?",
-    a: 'Draft: your agency is still preparing the page. With client: it\'s your turn to edit it. To review: you\'ve submitted it and your agency is reviewing it. Approved: it\'s final.',
+    a: 'Draft: your agency is still preparing the page. In Progress: it\'s your turn to edit it. Pending Review: you\'ve submitted it and your agency is reviewing it. Completed: it\'s final.',
   },
   {
     q: "Can I edit a page after submitting it?",
-    a: 'While a page is "To review" it\'s locked so your agency can review a stable version. If they send it back to you, the texts they changed are marked so you can see what\'s new.',
+    a: 'While a page is "Pending Review" it\'s locked so your agency can review a stable version. If they send it back to you, the texts they changed are marked so you can see what\'s new.',
   },
   {
     q: "Will I lose my work if I close the tab?",

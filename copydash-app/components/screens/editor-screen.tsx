@@ -77,7 +77,7 @@ export function EditorScreen({
   const [onlyChanges, setOnlyChanges] = React.useState(false);
   const round = useReviewRound(page.id, "fields", reviewVersion);
   // Clients edit only while the page is with them (the database enforces it too).
-  const editable = role === "pm" || pageStatus === "With client";
+  const editable = role === "pm" || pageStatus === "In Progress";
   const [aiState, setAiState] = React.useState<AiState>("idle");
   const [aiMsgIdx, setAiMsgIdx] = React.useState(0);
   const [aiProgress, setAiProgress] = React.useState(0);

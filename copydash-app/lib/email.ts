@@ -60,8 +60,8 @@ export function reviewEmail({ event, actorName, pageName, projectName, url }: { 
   const { sentence, subject, button } = {
     sent: { sentence: `sent you ${page} to fill in. It's your turn.`, subject: `Your turn: ${pageName} — ${projectName}`, button: "Open the page" },
     sent_back: { sentence: `sent ${page} back to you with changes to look at. It's your turn.`, subject: `Back to you: ${pageName} — ${projectName}`, button: "See what changed" },
-    submitted: { sentence: `submitted ${page} for review. It's your turn.`, subject: `To review: ${pageName} — ${projectName}`, button: "Review the page" },
-    approved: { sentence: `approved ${page}. Nothing more to do on it.`, subject: `Approved: ${pageName} — ${projectName}`, button: "View the page" },
+    submitted: { sentence: `submitted ${page} for review. It's your turn.`, subject: `Pending review: ${pageName} — ${projectName}`, button: "Review the page" },
+    approved: { sentence: `marked ${page} as completed. Nothing more to do on it.`, subject: `Completed: ${pageName} — ${projectName}`, button: "View the page" },
   }[event];
   const footer = "You get this email because you work on this project in CopyDash. You can turn it off in Settings → Notifications.";
   const text = `${actorName} ${sentence}\n\n${button}: ${url}\n\n${footer}`;

@@ -7,8 +7,8 @@ import type { DesignFonts } from "@/lib/design-fonts";
 export type UserRole = "pm" | "client";
 /** Legacy column, no longer shown: a project's status is derived from its pages (lib/review.ts). */
 export type ProjectStatus = "Draft" | "In Progress" | "Pending Review" | "Completed";
-/** See lib/review.ts and migration 0008. */
-export type PageStatus = "Draft" | "With client" | "To review" | "Approved";
+/** In Progress = with the client, Pending Review = with the agency — see lib/review.ts and migration 0008. */
+export type PageStatus = "Draft" | "In Progress" | "Pending Review" | "Completed";
 export type ClientStatus = "Active" | "Waiting" | "Archived";
 export type EmailLabel = "Primary" | "Billing" | "Technical" | "Marketing" | "Other";
 export type TeamRole = "Admin" | "Editor" | "Viewer";

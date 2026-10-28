@@ -67,7 +67,7 @@ Agencies currently collect website content via email threads, generic Google Doc
 - As a **PM**, I want to upload a page's design as a PDF or import it from Figma, so I can collect copy directly on the real layout instead of a disconnected form.
 - As a **PM**, I want to invite a client by email, so they can fill in their own content without me relaying messages.
 - As a **Client**, I want to click directly on text in the design and edit it in place, so I know exactly how my words will look on the real page.
-- As a **PM**, I want to see each page's status (Draft / With client / To review / Approved), so I know whose turn it is and what needs my attention.
+- As a **PM**, I want to see each page's status (Draft / In Progress = with the client / Pending Review = with the agency / Completed), so I know whose turn it is and what needs my attention.
 - As a **PM**, when a client submits a page, I want to see which texts they changed and what they were before, so I can review quickly.
 - As a **PM**, I want to archive a project I'm no longer actively running, so my active list stays relevant, without permanently losing the data.
 - As a **Client**, I want to leave a comment on a specific piece of text, so the PM knows exactly what I'm asking about.

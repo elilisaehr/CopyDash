@@ -133,7 +133,7 @@ export function DesignEditorScreen({
   const fileRef = React.useRef<HTMLInputElement>(null);
 
   // Clients edit only while the page is with them (the database enforces it too).
-  const editable = role === "pm" || pageStatus === "With client";
+  const editable = role === "pm" || pageStatus === "In Progress";
 
   // ── load existing design_edits for this page ────────────────────────────
   React.useEffect(() => {

@@ -17,8 +17,8 @@ export function ClientDashboardScreen({
   pages: Page[];
 }) {
   const firstName = userName?.split(" ")[0] || "there";
-  const waiting = pages.filter((p) => p.status === "With client").length;
-  const completed = pages.filter((p) => p.status === "Approved").length;
+  const waiting = pages.filter((p) => p.status === "In Progress").length;
+  const completed = pages.filter((p) => p.status === "Completed").length;
   const pct = pages.length ? Math.round((completed / pages.length) * 100) : 0;
 
   if (!project) {
@@ -77,7 +77,7 @@ export function ClientDashboardScreen({
               </div>
               <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: "#fff", fontFamily: "var(--font-sans)" }}>{project.name}</h2>
               <p style={{ margin: "4px 0 0", fontSize: 13, color: "rgba(255,255,255,0.75)", fontFamily: "var(--font-body)" }}>
-                {completed} of {pages.length} pages approved
+                {completed} of {pages.length} pages completed
               </p>
             </div>
             <div style={{ textAlign: "right" }}>
@@ -103,7 +103,7 @@ export function ClientDashboardScreen({
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
             {/* Pages where it's the client's turn come first (sort is stable). */}
-            {[...pages].sort((a, b) => Number(b.status === "With client") - Number(a.status === "With client")).map((pg) => (
+            {[...pages].sort((a, b) => Number(b.status === "In Progress") - Number(a.status === "In Progress")).map((pg) => (
               <ClientPageCard key={pg.id} page={pg} />
             ))}
           </div>
@@ -158,9 +158,9 @@ export function ClientDashboardScreen({
 // `yourTurn` pages are the ones to act on; the others still open, read-only.
 const STATUS_ACTION: Record<string, { label: string; color: string; bg: string; yourTurn: boolean }> = {
   Draft: { label: "Being prepared by your agency", color: "#71717b", bg: "#f4f4f5", yourTurn: false },
-  "With client": { label: "Your turn — edit this page", color: "#c2410c", bg: "#fff7ed", yourTurn: true },
-  "To review": { label: "Your agency is reviewing it", color: "#1d4ed8", bg: "#eff6ff", yourTurn: false },
-  Approved: { label: "Approved", color: "#15803d", bg: "#dcfce7", yourTurn: false },
+  "In Progress": { label: "Your turn — edit this page", color: "#f59e0b", bg: "#fef9c3", yourTurn: true },
+  "Pending Review": { label: "Your agency is reviewing it", color: "#1d4ed8", bg: "#eff6ff", yourTurn: false },
+  Completed: { label: "Completed", color: "#15803d", bg: "#dcfce7", yourTurn: false },
 };
 
 function ClientPageCard({ page }: { page: Page }) {
@@ -198,7 +198,7 @@ function ClientPageCard({ page }: { page: Page }) {
             flexShrink: 0,
           }}
         >
-          <Icon name={page.status === "Approved" ? "check-circle" : "file-text"} size={17} color={info.color} />
+          <Icon name={page.status === "Completed" ? "check-circle" : "file-text"} size={17} color={info.color} />
         </div>
         <StatusBadge status={page.status} />
       </div>

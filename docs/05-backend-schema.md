@@ -92,7 +92,7 @@ PK: `(project_id, user_id)`.
 | id | uuid, PK | yes | `gen_random_uuid()` |
 | project_id | uuid, FK → `projects`, cascade | yes | — |
 | name | text | yes | — |
-| status | text, check in (`Draft`,`With client`,`To review`,`Approved`) — the review flow, migration 0008. Old names written by old code are translated by the `pages_a_normalize_status` trigger | yes | `'Draft'` |
+| status | text, check in (`Draft`,`In Progress`,`Pending Review`,`Completed`) — the review flow (0008): In Progress = with the client, Pending Review = with the agency | yes | `'Draft'` |
 | template | text | no | `'custom'` |
 | pdf_text, pdf_filename, pdf_storage_path | text | no | — |
 | has_pdf_design | boolean | yes | `false` |
@@ -247,7 +247,7 @@ All tables have RLS enabled. The general pattern:
 - **PMs** get full read/write access to rows where `pm_id = auth.uid()` (directly, or via a helper function like `is_pm_of_project()`/`is_pm_of_page()`/`is_pm_of_client()` for child tables).
 - **Clients** (project members) get:
   - **Read** access to their project, its pages, fields, design edits, comments, and their PM's branding.
-  - **Write** access limited to: `fields` (content) and `design_edits` (insert + update) **only while the page is `With client`** (restrictive policies via `can_edit_page_copy()`, 0008), moving a page from `With client` to `To review` (trigger `pages_b_review_guard` — any other change to the page row is refused), and inserting their own `comments`.
+  - **Write** access limited to: `fields` (content) and `design_edits` (insert + update) **only while the page is `In Progress`** (restrictive policies via `can_edit_page_copy()`, 0008), moving a page from `In Progress` to `Pending Review` (trigger `pages_b_review_guard` — any other change to the page row is refused), and inserting their own `comments`.
   - Agency people (admins, editors — `is_agency_of_project()`) can move a page to any status.
 - `activity_log`, `team_invitations`, `figma_connections` are **PM-only**, no client access at all.
 - Storage (`pdfs` bucket): same pattern via a `is_pm_of_project()`/`is_member_of_project()` check on the path's leading folder (`{project_id}/...`).

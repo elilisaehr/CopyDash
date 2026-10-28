@@ -85,9 +85,6 @@ export function Btn({
 // ── Status ────────────────────────────────────────────────────────
 export const STATUS_CONFIG: Record<string, { bg: string; text: string }> = {
   Draft: { bg: "#f4f4f5", text: "#71717b" },
-  "With client": { bg: "#fff7ed", text: "#c2410c" },
-  "To review": { bg: "#eff6ff", text: "#1d4ed8" },
-  Approved: { bg: "#dcfce7", text: "#15803d" },
   "In Progress": { bg: "#fef9c3", text: "#713f12" },
   "Pending Review": { bg: "#eff6ff", text: "#1d4ed8" },
   Completed: { bg: "#dcfce7", text: "#15803d" },
@@ -123,7 +120,7 @@ export function StatusBadge({ status }: { status: string }) {
 export function StatusPicker({
   status,
   onChange,
-  options = ["Draft", "With client", "To review", "Approved"],
+  options = ["Draft", "In Progress", "Pending Review", "Completed"],
   disabled = false,
 }: {
   status: string;
