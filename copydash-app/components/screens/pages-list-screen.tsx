@@ -14,7 +14,7 @@ import { createPage, type NewPageData } from "@/lib/create-page";
 import { PlanLimitNotice } from "@/components/features/plan-limit-notice";
 import type { Page, Project } from "@/lib/supabase/types";
 
-const STATUS_FILTERS = ["All", "Draft", "In Progress", "Pending Review", "Completed"];
+const STATUS_FILTERS = ["All", "Draft", "With client", "To review", "Approved"];
 
 export interface ProjectWithClient extends Project {
   clients: { name: string } | null;
@@ -60,9 +60,9 @@ export function PagesListScreen({
 
   const stats = [
     { label: "Total Pages", value: pages.length, icon: "file-text" },
-    { label: "Completed", value: pages.filter((p) => p.status === "Completed").length, icon: "check-circle", color: "#15803d" },
-    { label: "In Progress", value: pages.filter((p) => p.status === "In Progress").length, icon: "zap", color: "#f59e0b" },
-    { label: "Pending Review", value: pages.filter((p) => p.status === "Pending Review").length, icon: "eye", color: "#0369a1" },
+    { label: "To review", value: pages.filter((p) => p.status === "To review").length, icon: "eye", color: "#1d4ed8" },
+    { label: "With client", value: pages.filter((p) => p.status === "With client").length, icon: "clock", color: "#c2410c" },
+    { label: "Approved", value: pages.filter((p) => p.status === "Approved").length, icon: "check-circle", color: "#15803d" },
   ];
 
   const handleAddPage = async (data: NewPageData) => {

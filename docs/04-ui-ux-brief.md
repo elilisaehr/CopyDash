@@ -32,9 +32,11 @@ Defined in `app/globals.css` as CSS variables (Zinc neutral scale + a Purple acc
 
 **Semantic status colors** (used in `StatusBadge`, a colored dot + pill):
 - Draft — grey (`#f4f4f5` bg / `#71717b` text)
-- In Progress — amber (`#fff7ed` bg / `#f59e0b`–`#c2410c` text)
-- Pending Review — blue (`#eff6ff`-ish bg / `#0369a1` text)
-- Completed — green (`#dcfce7` bg / `#15803d` text)
+- With client — amber (`#fff7ed` bg / `#c2410c` text)
+- To review — blue (`#eff6ff` bg / `#1d4ed8` text)
+- Approved — green (`#dcfce7` bg / `#15803d` text)
+
+**Review banner** (top of both editors, `components/features/review.tsx`): violet wash (`#f5f3ff`) when it's the viewer's turn, grey (`#fafafa`) while waiting on the other side, green (`#f0fdf4`) when approved. One sentence saying whose turn it is, one line of detail, the hand-off buttons on the right.
 
 ## Typography
 

@@ -55,19 +55,19 @@ function FAQItem({ q, a, open, onToggle }: { q: string; a: string; open: boolean
 const FAQS = [
   {
     q: "How do I edit my page content?",
-    a: 'From "My Work", click any page card that says "Start editing" or "Continue editing". Each section has a text field on the right — just type your content. Your changes save automatically as you go.',
+    a: 'From "My Work", open a page marked "Your turn". Click any text on the design (or in the list on the right) and type. Your changes save automatically as you go.',
   },
   {
     q: "How do I submit my content for review?",
-    a: 'Once you\'ve filled in a page, open it and click "Submit for Review" in the top bar. Your project manager will be notified and will review your content. You\'ll get an email once it\'s approved or if changes are requested.',
+    a: 'When you\'re done with a page, click "Submit for review" in the banner at the top of the page. Your agency gets an email and reviews your content. You\'ll get an email when they approve it or send it back to you.',
   },
   {
     q: "What do the status labels mean?",
-    a: 'Draft means the page hasn\'t been started. In Progress means you\'ve begun editing. Pending Review means you\'ve submitted it and your agency is reviewing. Completed means it\'s approved and final.',
+    a: 'Draft: your agency is still preparing the page. With client: it\'s your turn to edit it. To review: you\'ve submitted it and your agency is reviewing it. Approved: it\'s final.',
   },
   {
     q: "Can I edit a page after submitting it?",
-    a: 'While a page is "Pending Review" it\'s locked so your agency can review a stable version. If you need to make changes, ask your project manager to send it back to you, or wait until they request changes.',
+    a: 'While a page is "To review" it\'s locked so your agency can review a stable version. If they send it back to you, the texts they changed are marked so you can see what\'s new.',
   },
   {
     q: "Will I lose my work if I close the tab?",

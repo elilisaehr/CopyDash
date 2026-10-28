@@ -27,7 +27,7 @@
 
 | Screen | Route | Purpose | Required data |
 |---|---|---|---|
-| Client dashboard | `/client` | The one project they're linked to, with its pages | `projects` (via `project_members`), `pages` |
+| Client dashboard | `/client` | The one project they're linked to, with its pages ("Your turn" pages first) | `projects` (via `project_members`), `pages` |
 | Client page editor | `/client/pages/[pageId]` | Same Design/Field editor, role-gated to editing permissions | `pages`, `design_edits`/`fields` |
 | Settings | `/client/settings` | Account only | `profiles` |
 | Help & Support | `/client/help` | Static help content | — |
@@ -39,9 +39,12 @@
 3. **Create a project** (`/pm/projects/new`) → name + pick the client → lands on the project's empty Pages list.
 4. **Add a page** → choose PDF upload or Figma import (if connected) → page created with that design attached.
 5. **Edit content** on the Design Editor (click text in place) or the Field Editor (structured list) → auto-saves per block/field.
-6. **Mark the page "Pending Review"** → the linked client now sees it awaiting their input on their dashboard.
-7. **Client reviews/edits**, PM is notified via the activity feed (no real email yet — see TRD).
-8. **PM marks the page "Completed"** → **Export** (PDF/JSON/CSV) to hand off to developers.
+6. **Send to client** (banner at the top of the editor) → page becomes **With client**; the client gets an email and sees "Your turn" on their dashboard.
+7. **Client edits, then "Submit for review"** → page becomes **To review** and locks for the client; the agency (admins + project editors) gets an email, and the dashboard's "Pages to review" counts it.
+8. **Agency reviews**: the banner says how many texts changed ("Show only changes", each with "Before: …" and who changed it) → **Approve** (client gets an email) or **Send back to client** (client gets an email and sees what the agency changed).
+9. **Export** (PDF/JSON/CSV) to hand off to developers.
+
+Page statuses: **Draft** (agency preparing; client can read only) → **With client** (client's turn) → **To review** (agency's turn) → **Approved** (final; the agency can "Reopen for the client"). A project's status is the most urgent of its pages' statuses.
 
 ## Alternate journeys
 

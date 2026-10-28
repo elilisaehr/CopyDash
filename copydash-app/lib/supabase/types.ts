@@ -5,8 +5,10 @@
 import type { DesignFonts } from "@/lib/design-fonts";
 
 export type UserRole = "pm" | "client";
+/** Legacy column, no longer shown: a project's status is derived from its pages (lib/review.ts). */
 export type ProjectStatus = "Draft" | "In Progress" | "Pending Review" | "Completed";
-export type PageStatus = ProjectStatus;
+/** See lib/review.ts and migration 0008. */
+export type PageStatus = "Draft" | "With client" | "To review" | "Approved";
 export type ClientStatus = "Active" | "Waiting" | "Archived";
 export type EmailLabel = "Primary" | "Billing" | "Technical" | "Marketing" | "Other";
 export type TeamRole = "Admin" | "Editor" | "Viewer";
@@ -141,6 +143,13 @@ export interface Field {
   max_chars: number;
   placeholder: string;
   position: number;
+  updated_at: string;
+  updated_by: string | null;
+  updated_by_name: string | null;
+  /** Text at the latest hand-off (null = empty) — see migration 0008. */
+  baseline: string | null;
+  /** Text at the hand-off before that. */
+  prev_baseline: string | null;
 }
 
 export interface DesignEdit {
@@ -148,6 +157,11 @@ export interface DesignEdit {
   block_id: string;
   content: string;
   updated_at: string;
+  updated_by: string | null;
+  updated_by_name: string | null;
+  /** Text at the latest hand-off (null = the design's original text). */
+  baseline: string | null;
+  prev_baseline: string | null;
 }
 
 export interface Comment {
