@@ -17,7 +17,7 @@
 - **comments** — per-field discussion thread entries.
 - **activity_log** — the PM dashboard's activity feed, auto-populated by triggers.
 - **notification_prefs** — one row per user, a JSON blob of notification toggles.
-- **team_invitations** — a PM's invited teammates (cosmetic — no email sent).
+- **team_invitations** — legacy, no longer used by the app (replaced by `invitations`, migration 0007).
 - **branding_settings** — one row per PM, used to white-label the client portal.
 
 ## Tables

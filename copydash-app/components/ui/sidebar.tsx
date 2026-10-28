@@ -22,9 +22,12 @@ const CLIENT_NAV: NavItem[] = [
 export function Sidebar({
   user,
   role,
+  workspace,
 }: {
   user: { name: string; email: string; project?: string; avatar_url?: string | null };
   role: "pm" | "client";
+  /** Agency side only: the workspace shown under the logo, and the member's role in it. */
+  workspace?: { name: string; role: "admin" | "editor"; planLabel: string };
 }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = React.useState(false);
@@ -52,7 +55,8 @@ export function Sidebar({
     }
   };
 
-  const nav = role === "client" ? CLIENT_NAV : PM_NAV;
+  // Managing client companies is admin-only.
+  const nav = role === "client" ? CLIENT_NAV : workspace?.role === "editor" ? PM_NAV.filter((n) => n.id !== "clients") : PM_NAV;
   const width = collapsed ? 66 : 255;
   const settingsHref = role === "client" ? "/client/settings" : "/pm/settings";
   const helpHref = role === "client" ? "/client/help" : "/pm/help";
@@ -112,6 +116,11 @@ export function Sidebar({
               <div>
                 <div style={{ fontSize: 14, fontWeight: 700, color: "#09090b", fontFamily: "var(--font-sans)" }}>CopyDash</div>
                 {role === "client" && user.project && <div style={{ fontSize: 11, color: "#71717b", fontFamily: "var(--font-body)", marginTop: 1 }}>{user.project}</div>}
+                {workspace && (
+                  <div style={{ fontSize: 11, color: "#71717b", fontFamily: "var(--font-body)", marginTop: 1, maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={`${workspace.name} · ${workspace.planLabel}`}>
+                    {workspace.name} · {workspace.role === "admin" ? workspace.planLabel : "Editor"}
+                  </div>
+                )}
               </div>
             )}
           </div>

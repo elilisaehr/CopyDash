@@ -47,14 +47,14 @@ Agencies currently collect website content via email threads, generic Google Doc
 | AI writing suggestions | Speeds up drafting; currently a realistic mock, not a real model | P1 — built (mocked, see TRD) |
 | Export (PDF/JSON/CSV) | Hand finished copy to developers in a usable format | P1 — built |
 | Rename / Archive (projects & pages) | Keep the workspace tidy without losing history; restorable | P1 — built |
-| Team invitations | Invite agency teammates | P2 — built, but **no email is actually sent** (cosmetic) |
+| Invitations | Invite editors, admins and clients to chosen projects by email link | Built — email via Resend (needs a verified sending domain before real use); link can also be copied and shared |
 | Client-portal branding | White-label the client's experience with the agency's name/color | P2 — built |
 
 ## Out of scope for version one
 
 - A real LLM integration (currently mocked — see TRD "Key technical decisions").
 - Billing / payments / subscription tiers.
-- Real transactional email (invitations, notifications — rows are saved, nothing is sent).
+- Notification emails (preferences are saved, nothing is sent). Invitation emails are real.
 - Native mobile apps (web only, responsive is not yet audited for small screens).
 - Real-time multi-user presence/collaboration (no "who's viewing this page right now" indicator).
 - Automated tests, staging environment, CI/CD pipeline.

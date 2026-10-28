@@ -1,10 +1,13 @@
+import { cache } from "react";
 import { createServerClient } from "@supabase/ssr";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 
 // Server Component / Route Handler / Server Action client — respects RLS
 // as the signed-in user (via the session cookie), NOT the service role.
-export async function createClient() {
+// Memoized per request while rendering, so a layout and its page share one
+// client — which also lets other `cache()`d helpers keyed on it dedupe.
+export const createClient = cache(async () => {
   const cookieStore = await cookies();
 
   return createServerClient(
@@ -29,7 +32,7 @@ export async function createClient() {
       },
     },
   );
-}
+});
 
 // Admin client using the service role key — bypasses RLS entirely.
 // Only ever import this from trusted server-only code (Server Actions,

@@ -1,63 +1,48 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getProfile, getUser } from "@/lib/auth";
+import { getWorkspaceContext } from "@/lib/workspace";
 import { PmOverviewScreen, type ProjectWithStats } from "@/components/screens/pm-overview-screen";
 import type { Client, Project } from "@/lib/supabase/types";
 
-type ProjectRow = Project & { client: Pick<Client, "name"> | null };
+type ProjectRow = Project & { client: Pick<Client, "name"> | null; pages: { status: string }[] };
 
 export default async function PmDashboardPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getUser();
   if (!user) redirect("/login");
+  const ctx = await getWorkspaceContext(supabase, user.id);
+  if (!ctx) redirect("/onboarding");
 
-  const [{ data: profile }, { data: projectRows }, { data: activity }] = await Promise.all([
-    supabase.from("profiles").select("name").eq("id", user.id).maybeSingle(),
+  // RLS scopes both queries: admins see the whole workspace, editors only
+  // the projects they're invited to (and no activity feed). Page statuses
+  // come along with each project, so the stats need no second request.
+  const [profile, { data: projectRows }, { data: activity }] = await Promise.all([
+    getProfile(),
     supabase
       .from("projects")
-      .select("*, client:clients(name)")
-      .eq("pm_id", user.id)
+      .select("*, client:clients(name), pages(status)")
+      .eq("workspace_id", ctx.workspace.id)
       .is("archived_at", null)
+      .is("pages.archived_at", null)
       .order("updated_at", { ascending: false }),
     supabase
       .from("activity_log")
       .select("*")
-      .eq("pm_id", user.id)
       .order("created_at", { ascending: false })
       .limit(5),
   ]);
 
-  const rows = (projectRows ?? []) as ProjectRow[];
-  const projectIds = rows.map((p) => p.id);
-
-  let pageRows: { project_id: string; status: string }[] = [];
-  if (projectIds.length > 0) {
-    const { data } = await supabase.from("pages").select("project_id, status").in("project_id", projectIds).is("archived_at", null);
-    pageRows = data ?? [];
-  }
-
-  const pageStats = new Map<string, { total: number; completed: number }>();
-  for (const row of pageRows) {
-    const s = pageStats.get(row.project_id) ?? { total: 0, completed: 0 };
-    s.total += 1;
-    if (row.status === "Completed") s.completed += 1;
-    pageStats.set(row.project_id, s);
-  }
-
-  const projects: ProjectWithStats[] = rows.map(({ client, ...rest }) => {
-    const s = pageStats.get(rest.id) ?? { total: 0, completed: 0 };
-    return {
-      ...rest,
-      clientName: client?.name ?? "—",
-      pageCount: s.total,
-      completedPageCount: s.completed,
-    };
-  });
+  const projects: ProjectWithStats[] = ((projectRows ?? []) as ProjectRow[]).map(({ client, pages, ...rest }) => ({
+    ...rest,
+    clientName: client?.name ?? "—",
+    pageCount: pages.length,
+    completedPageCount: pages.filter((p) => p.status === "Completed").length,
+  }));
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "morning" : hour < 18 ? "afternoon" : "evening";
   const firstName = (profile?.name || user.email || "there").split(" ")[0];
 
-  return <PmOverviewScreen firstName={firstName} greeting={greeting} projects={projects} activity={activity ?? []} />;
+  return <PmOverviewScreen firstName={firstName} greeting={greeting} projects={projects} activity={activity ?? []} isAdmin={ctx.role === "admin"} />;
 }

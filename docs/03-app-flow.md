@@ -4,7 +4,8 @@
 
 - `/` — redirects based on auth state: signed out → `/login`; signed in → `/pm` or `/client` depending on role.
 - `/login` — public.
-- `/signup` — public; role picker (Project Manager / Client) at the top of the form.
+- `/signup` — public; creates an **agency** account only. Editors and clients join through an invitation link.
+- `/invite/[token]` — public; landing page of an invitation link. Shows "create your account" (no account for that email yet), "sign in to accept" (account exists), "accept" (signed in with that email) or "sign out first" (signed in as someone else); an used or cancelled link shows "this invitation can't be used". Accepting lands on `/pm` (admin/editor) or `/client`.
 
 ## Screen inventory
 
@@ -19,7 +20,7 @@
 | Design Editor | `/pm/projects/[projectId]/pages/[pageId]` (when the page has a design) | Edit copy in place on the PDF/Figma design | `pages`, `design_edits` or `figma_designs` |
 | Field Editor | same route, fallback when no design | Structured list of text fields | `pages`, `fields` |
 | Clients | `/pm/clients` | Manage client companies + their emails | `clients`, `client_emails`, `projects` (for per-client project count) |
-| Settings | `/pm/settings` | Tabs: Account, Notifications, Team, Branding, Integrations (Figma), **Archive** | `profiles`, `notification_prefs`, `team_invitations`, `branding_settings`, `figma_connections`, archived `projects`/`pages` |
+| Settings | `/pm/settings` | Tabs: Account, Notifications, Team (admins: members, pending invitations, invite form), Branding, Integrations (Figma), **Archive** | `profiles`, `notification_prefs`, `workspace_members`, `invitations`, `project_members`, `branding_settings`, `figma_connections`, archived `projects`/`pages` |
 | Help & Support | `/pm/help` | Static help content | — |
 
 **Client side** (sidebar: My Work, Settings, Help & Support)

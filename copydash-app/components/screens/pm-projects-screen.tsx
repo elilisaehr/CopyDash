@@ -19,7 +19,7 @@ export interface ProjectWithStats extends Project {
 const FILTER_TABS = ["All", "In Progress", "Pending Review", "Completed", "Draft"] as const;
 type FilterTab = (typeof FILTER_TABS)[number];
 
-export function PmProjectsScreen({ projects }: { projects: ProjectWithStats[] }) {
+export function PmProjectsScreen({ projects, isAdmin }: { projects: ProjectWithStats[]; /** Editors can't create, rename or archive projects. */ isAdmin: boolean }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = React.useState<FilterTab>("All");
   const [search, setSearch] = React.useState("");
@@ -77,9 +77,11 @@ export function PmProjectsScreen({ projects }: { projects: ProjectWithStats[] })
                 }}
               />
             </div>
-            <Btn variant="primary" icon="plus" onClick={() => router.push("/pm/projects/new")}>
-              New Project
-            </Btn>
+            {isAdmin && (
+              <Btn variant="primary" icon="plus" onClick={() => router.push("/pm/projects/new")}>
+                New Project
+              </Btn>
+            )}
           </>
         }
       />
@@ -159,6 +161,7 @@ export function PmProjectsScreen({ projects }: { projects: ProjectWithStats[] })
                       last={i === filtered.length - 1}
                       onSelect={() => router.push(`/pm/projects/${p.id}`)}
                       onRename={() => setRenamingProject(p)}
+                      canManage={isAdmin}
                     />
                   ))
                 )}
@@ -187,11 +190,13 @@ function ProjectTableRow({
   last,
   onSelect,
   onRename,
+  canManage,
 }: {
   project: ProjectWithStats;
   last: boolean;
   onSelect: () => void;
   onRename: () => void;
+  canManage: boolean;
 }) {
   const router = useRouter();
   const [hov, setHov] = React.useState(false);
@@ -254,6 +259,8 @@ function ProjectTableRow({
         <span style={{ fontSize: 13, color: "#71717b", fontFamily: "var(--font-body)" }}>{formatDate(p.updated_at)}</span>
       </td>
       <td style={{ padding: "14px 16px", textAlign: "right", position: "relative" }}>
+        {canManage && (
+        <>
         <button
           ref={menuBtnRef}
           onClick={(e) => {
@@ -294,6 +301,8 @@ function ProjectTableRow({
             Archive
           </button>
         </DropdownMenu>
+        </>
+        )}
       </td>
     </tr>
   );

@@ -1,5 +1,26 @@
+import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { createClient } from "./supabase/server";
 import type { Profile, UserRole } from "./supabase/types";
+
+/**
+ * The signed-in user, verified with Supabase Auth once per request — layouts
+ * and pages both call this, but only the first call goes over the network.
+ */
+export const getUser = cache(async () => {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return user;
+});
+
+/** The signed-in user's profile (created on first sight), once per request. */
+export const getProfile = cache(async (): Promise<Profile | null> => {
+  const user = await getUser();
+  if (!user) return null;
+  return ensureProfile(await createClient(), user);
+});
 
 /**
  * Ensures a `profiles` row exists for the signed-in user. Supabase auth

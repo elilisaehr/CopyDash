@@ -29,6 +29,40 @@
 | Decide on password reset | Either a real "forgot password" flow (Supabase Auth supports this natively) or explicitly deprioritize it | The Settings → Account password form either works or is removed/labeled "coming soon" instead of silently doing nothing | None |
 | Review Figma token storage | Decision: accept plaintext storage for now, or add encryption | Documented decision in the TRD; implemented if "encrypt" is chosen | None |
 
+## Next up — product decisions of 2026-10-23 (in this order)
+
+### Status (paused 2026-10-23) — branch `feat/workspaces-roles`, not pushed, not deployed
+
+- **A1 Database — done.** Migration `0007_workspaces_roles.sql` (workspaces, workspace_members, project_members.role, invitations, plan_limits, backfill, RLS, plan-limit triggers). Also fixes a live hole: the old `pm_id` policies let any signed-in user write projects/clients into someone else's workspace.
+- **A2 App by role — done.** Workspace-scoped queries (`lib/workspace.ts`), admin-only routes/actions, plan-limit notices (`lib/plan.ts`).
+- **A4 Onboarding — done.** `/onboarding` wizard, browser-tested end to end on dev.
+- **Speed pass — done (2026-10-28).** Server functions pinned to Frankfurt (`vercel.json`, next to the prod DB — they were running in Washington), per-request dedupe of session/profile/workspace reads, parallel + joined queries, loading skeletons. The region change only applies once this branch is deployed.
+- **A3 Invitations — done (2026-10-28), browser-tested on dev.** Settings → Team lists members (owner, admins, editors + their projects), pending invitations (copy link / resend / cancel) and an invite form (Editor / Admin / Client + projects). Clients → card menu "Send invite" / "Copy invite link" invites the client's primary email to all its projects. Actions in `lib/actions/invitations.ts`; email via Resend REST in `lib/email.ts` (best-effort: if it fails, the admin gets the link to share). `/invite/[token]` (service role, `app/invite/[token]/actions.ts`) creates the account for the invited email or signs an existing one in, grants workspace/project membership, marks the client company Active. Sign-up is now agency-only (no Client choice). `team_invitations` is no longer used.
+  - **Before inviting real people:** verify a sending domain in Resend and set `RESEND_FROM` (e.g. `CopyDash <invites@yourdomain>`); until then Resend only delivers to the Resend account owner's address. Add `RESEND_API_KEY` (and `RESEND_FROM`) to Vercel's environment variables. Optional `NEXT_PUBLIC_SITE_URL` fixes the link host (otherwise taken from the request).
+- **Next: B (clearer review).**
+- **Dev environment:** `npm run dev` uses the `copydash-dev` Supabase project via `copydash-app/.env.development.local`; prod stays on `.env.local`. Dev test accounts: pm1 / pm2 / client1 / editor1 / newpm `@copydash.test` (password `Test-1234!`), created by the scratch seed script.
+- **Release checklist for A (when done):** (1) paste `0007_workspaces_roles.sql` into the **prod** Supabase SQL editor — it's backward compatible with the deployed code, so apply it *before* merging; (2) open a PR, check the Vercel preview with a real account; (3) merge. Existing PMs become admins on the 'pro' plan.
+- Later: decide paid plan limits/prices (D), then Stripe; mixed text styles (Milestone 4).
+
+**A. Roles, workspaces and onboarding**
+- Three roles: **Admin** (agency owner — creates projects, manages everything and everyone), **Editor** (agency teammate — can add/remove and edit pages, only in projects they're invited to), **Client** (edits the copy on their pages only, creates nothing).
+- Introduce a workspace (the agency) that owns projects, so limits and billing attach to it. Existing PMs become Admins of an auto-created workspace; existing clients stay Clients.
+- Real invitation emails (Resend) for editors and clients — replaces today's cosmetic Team invitations.
+- Onboarding: a short first-login wizard — agency name → first project → first page (PDF or Figma) → lands in the editor; inviting someone is offered at the end, optional.
+
+**B. Clearer review**
+- Statuses that say who must act: Draft → With client → To review (agency) → Approved, replacing the two-way "Pending Review"; a clear "your turn" banner.
+- Show what changed since the last hand-off (before/after, who edited what).
+- Email notification when it's someone's turn (uses A's email provider).
+
+**C. Export for developers**
+- Copy button on every text; a read-only page view to copy from.
+- A PDF of the page design with the final copy as real, selectable text, so a developer can copy-paste from it.
+- CSV, Excel and Word exports.
+
+**D. Paid plans**
+- Free: 1 project, 2 pages. Two paid plans — limits and prices not decided yet, so build plan limits as data that's easy to change. Stripe once pricing is set.
+
 ## Milestone 2 — Data and auth hardening
 
 - Decide and implement a data retention/deletion policy (see Backend Schema doc, "Retention and deletion").
@@ -44,6 +78,8 @@
 - Decide what an unlinked Client (signed up before their email was added anywhere) should see instead of an empty dashboard.
 
 ## Milestone 4 — Secondary features (only if the PRD's open questions resolve toward "needed for v1")
+
+- **Mixed styles inside one text block (decided: rich text, deferred — not a priority).** A Figma text node can mix colours/weights (e.g. a title whose second line is orange); today an edited block takes the first style only. Plan: import Figma's per-character style runs (`characterStyleOverrides` + `styleOverrideTable`), render the editable overlay as styled spans so typing inherits the run under the caret, store runs alongside the plain-text edit (new `design_edits` column; plain `content` stays for export/SEO/AI), and re-map runs when the side-panel textarea edits plain text (unchanged prefix/suffix keep their style, inserted text takes its neighbour's). Figma first; PDF later via per-item ink sampling.
 
 - Wire a real LLM provider behind `lib/ai-mock.ts`'s existing interface (writing suggestions + "extract content from PDF").
 - Wire a real transactional email provider for Team Invitations and Client invitations.

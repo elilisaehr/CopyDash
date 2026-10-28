@@ -10,7 +10,8 @@ import { AuthVisual } from "@/components/ui/auth-visual";
 
 export default function SignupPage() {
   const router = useRouter();
-  const [form, setForm] = React.useState({ name: "", email: "", password: "", role: "pm" as "pm" | "client" });
+  // Sign-up is for agencies only: editors and clients join through an invitation link (/invite/[token]).
+  const [form, setForm] = React.useState({ name: "", email: "", password: "", role: "pm" as const });
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [checkEmail, setCheckEmail] = React.useState(false);
@@ -39,7 +40,7 @@ export default function SignupPage() {
     }
     // Auto-confirmed: create the profile row now and continue in.
     await supabase.from("profiles").upsert({ id: data.user!.id, role: form.role, name: form.name, email: form.email });
-    router.push(form.role === "client" ? "/client" : "/pm");
+    router.push("/pm");
     router.refresh();
   };
 
@@ -83,36 +84,11 @@ export default function SignupPage() {
             </div>
           ) : (
             <>
-              <h2 style={{ margin: "0 0 8px", fontSize: 28, fontWeight: 700, color: "#09090b", fontFamily: "var(--font-sans)" }}>Create account</h2>
-              <p style={{ margin: "0 0 28px", fontSize: 14, color: "#71717b" }}>Get started with CopyDash for free</p>
-              <div style={{ display: "flex", background: "#f4f4f5", borderRadius: 10, padding: 4, marginBottom: 24, gap: 4 }}>
-                {[
-                  { id: "pm" as const, label: "Project Manager" },
-                  { id: "client" as const, label: "Client" },
-                ].map((r) => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => update("role", r.id)}
-                    style={{
-                      flex: 1,
-                      padding: "8px 12px",
-                      borderRadius: 8,
-                      border: "none",
-                      cursor: "pointer",
-                      fontSize: 13,
-                      fontWeight: 500,
-                      fontFamily: "var(--font-sans)",
-                      background: form.role === r.id ? "#fff" : "transparent",
-                      color: form.role === r.id ? "#09090b" : "#71717b",
-                      boxShadow: form.role === r.id ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
-                      transition: "all 0.15s",
-                    }}
-                  >
-                    {r.label}
-                  </button>
-                ))}
-              </div>
+              <h2 style={{ margin: "0 0 8px", fontSize: 28, fontWeight: 700, color: "#09090b", fontFamily: "var(--font-sans)" }}>Create your agency account</h2>
+              <p style={{ margin: "0 0 12px", fontSize: 14, color: "#71717b" }}>Get started with CopyDash for free</p>
+              <p style={{ margin: "0 0 24px", fontSize: 13, color: "#71717b", lineHeight: 1.6, padding: "10px 12px", background: "#fafafa", border: "1px solid #f4f4f5", borderRadius: 8 }}>
+                Invited by an agency? Open the link in your invitation email instead — it sets up your access.
+              </p>
               <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                 <FieldInput label="Full name" value={form.name} onChange={(v) => update("name", v)} placeholder="Alex Martin" />
                 <FieldInput label="Email" value={form.email} onChange={(v) => update("email", v)} placeholder="you@company.com" type="email" />

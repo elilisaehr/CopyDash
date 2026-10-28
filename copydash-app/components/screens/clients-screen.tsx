@@ -16,6 +16,7 @@ import {
   StatusBadge,
 } from "@/components/ui/primitives";
 import { formatDate } from "@/lib/format";
+import { inviteClient } from "@/lib/actions/invitations";
 import type { Client, ClientEmail, EmailLabel } from "@/lib/supabase/types";
 
 type ProjectLite = { id: string; client_id: string | null; name: string; status: string };
@@ -32,10 +33,12 @@ export function ClientsScreen({
   initialClients,
   initialClientEmails,
   projects,
+  workspaceId,
 }: {
   initialClients: Client[];
   initialClientEmails: ClientEmail[];
   projects: ProjectLite[];
+  workspaceId: string;
 }) {
   const router = useRouter();
   const [search, setSearch] = React.useState("");
@@ -46,13 +49,13 @@ export function ClientsScreen({
   const [newClientEmails, setNewClientEmails] = React.useState<EmailRow[]>([{ address: "", label: "Primary", is_primary: true }]);
   const [adding, setAdding] = React.useState(false);
   const [savingEdit, setSavingEdit] = React.useState(false);
-  const [toast, setToast] = React.useState<string | null>(null);
+  const [toast, setToast] = React.useState<{ message: string; tone: "success" | "error" } | null>(null);
 
   const toastTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showToast = React.useCallback((message: string) => {
-    setToast(message);
+  const showToast = React.useCallback((message: string, tone: "success" | "error" = "success") => {
+    setToast({ message, tone });
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), 3000);
+    toastTimer.current = setTimeout(() => setToast(null), tone === "error" ? 8000 : 3000);
   }, []);
   React.useEffect(
     () => () => {
@@ -104,6 +107,7 @@ export function ClientsScreen({
       .from("clients")
       .insert({
         pm_id: user.id,
+        workspace_id: workspaceId,
         name: newClientName.trim(),
         contact_name: newClientContact || newClientName.trim(),
         status: "Waiting",
@@ -128,11 +132,9 @@ export function ClientsScreen({
     setNewClientContact("");
     setNewClientEmails([{ address: "", label: "Primary", is_primary: true }]);
     setAddOpen(false);
-    // No email provider is wired up yet — this success toast is cosmetic,
-    // matching the prototype's UX; no invitation email is actually sent.
-    // (A DB trigger auto-links the client's auth account to their projects
-    // once they sign up with a matching email — no app code needed here.)
-    showToast("Client added! Invitation email sent.");
+    // A new client has no project yet, so there's nothing to invite them to:
+    // the invitation is sent from the card's menu once a project exists.
+    showToast("Client added. Invite them from their card once their project is created.");
     router.refresh();
   };
 
@@ -172,13 +174,18 @@ export function ClientsScreen({
     router.refresh();
   };
 
-  const handleResendInvite = () => {
-    // Cosmetic only — no email provider is configured.
-    showToast("Invitation email sent.");
+  const handleSendInvite = async (clientId: string) => {
+    const res = await inviteClient(clientId);
+    if (!res.ok) return showToast(res.error, "error");
+    if (res.emailSent) return showToast("Invitation email sent.");
+    navigator.clipboard?.writeText(res.link);
+    showToast(`The email couldn't be sent (${res.emailError}). The invite link is copied — share it yourself.`, "error");
   };
 
-  const handleCopyInviteLink = (clientId: string) => {
-    navigator.clipboard?.writeText(`https://copydash.app/invite/${clientId}`);
+  const handleCopyInviteLink = async (clientId: string) => {
+    const res = await inviteClient(clientId, false);
+    if (!res.ok) return showToast(res.error, "error");
+    navigator.clipboard?.writeText(res.link);
     showToast("Invite link copied to clipboard.");
   };
 
@@ -236,16 +243,16 @@ export function ClientsScreen({
             style={{
               marginBottom: 16,
               padding: "12px 16px",
-              background: "#f0fdf4",
-              border: "1px solid #bbf7d0",
+              background: toast.tone === "error" ? "#fffbeb" : "#f0fdf4",
+              border: `1px solid ${toast.tone === "error" ? "#fde68a" : "#bbf7d0"}`,
               borderRadius: 10,
               display: "flex",
               alignItems: "center",
               gap: 10,
             }}
           >
-            <Icon name="check-circle" size={16} color="#15803d" />
-            <span style={{ fontSize: 13, color: "#15803d", fontFamily: "var(--font-body)", fontWeight: 500 }}>{toast}</span>
+            <Icon name={toast.tone === "error" ? "alert-circle" : "check-circle"} size={16} color={toast.tone === "error" ? "#b45309" : "#15803d"} />
+            <span style={{ fontSize: 13, color: toast.tone === "error" ? "#92400e" : "#15803d", fontFamily: "var(--font-body)", fontWeight: 500 }}>{toast.message}</span>
           </div>
         )}
 
@@ -257,7 +264,7 @@ export function ClientsScreen({
               client={client}
               clientProjects={getClientProjects(client)}
               onDelete={() => handleDelete(client.id)}
-              onResendInvite={handleResendInvite}
+              onResendInvite={() => handleSendInvite(client.id)}
               onCopyLink={() => handleCopyInviteLink(client.id)}
               onEdit={() => setEditClient(client)}
             />
@@ -322,7 +329,7 @@ function ClientCard({
 
   const menuItems: { label: string; icon: string; action: () => void; danger?: boolean }[] = [
     { label: "Edit client", icon: "edit", action: onEdit },
-    { label: "Resend invite", icon: "mail", action: onResendInvite },
+    { label: "Send invite", icon: "mail", action: onResendInvite },
     { label: "Copy invite link", icon: "link", action: onCopyLink },
     { label: "Remove client", icon: "trash", action: onDelete, danger: true },
   ];

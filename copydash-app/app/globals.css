@@ -212,3 +212,17 @@ select {
 .slide-in-right {
   animation: slideInRight 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
+@keyframes skeletonPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+.skeleton {
+  background: #f4f4f5;
+  border-radius: 8px;
+  animation: skeletonPulse 1.4s ease-in-out infinite;
+}

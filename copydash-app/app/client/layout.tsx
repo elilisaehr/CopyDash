@@ -1,20 +1,20 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { ensureProfile } from "@/lib/auth";
+import { getProfile, getUser } from "@/lib/auth";
 import { AppLayout } from "@/components/ui/primitives";
 import { Sidebar } from "@/components/ui/sidebar";
 
 export default async function ClientLayout({ children }: LayoutProps<"/client">) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getUser();
   if (!user) redirect("/login");
 
-  const profile = await ensureProfile(supabase, user);
-  if (profile.role !== "client") redirect("/pm");
-
-  const { data: project } = await supabase.from("projects").select("name").is("archived_at", null).limit(1).maybeSingle();
+  // RLS limits the project read to the client's own projects, so it can run alongside the profile check.
+  const [profile, { data: project }] = await Promise.all([
+    getProfile(),
+    supabase.from("projects").select("name").is("archived_at", null).limit(1).maybeSingle(),
+  ]);
+  if (!profile || profile.role !== "client") redirect("/pm");
 
   return (
     <AppLayout

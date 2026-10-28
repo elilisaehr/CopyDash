@@ -3,10 +3,12 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
-import { Btn, Card, FieldInput, SelectInput, Avatar, Badge, PageHeader, Toggle } from "@/components/ui/primitives";
+import { Btn, Card, FieldInput, SelectInput, Avatar, PageHeader, Toggle } from "@/components/ui/primitives";
+import { planLimitError } from "@/lib/plan";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate } from "@/lib/format";
-import type { Profile, TeamInvitation, BrandingSettings, TeamRole, FigmaConnection, Project, Page } from "@/lib/supabase/types";
+import { createInvitation, removeMember, resendInvitation, revokeInvitation, type InviteResult } from "@/lib/actions/invitations";
+import type { Profile, BrandingSettings, FigmaConnection, Invitation, InvitationRole, Project, Page, WorkspaceRole } from "@/lib/supabase/types";
 
 // SectionTitle isn't in the shared primitives — ported here as a tiny local helper.
 function SectionTitle({ children }: { children: React.ReactNode }) {
@@ -37,6 +39,9 @@ const TABS = [
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
+
+// Workspace-wide settings are admin-only.
+const ADMIN_TABS: TabId[] = ["team", "branding", "archive"];
 
 export type PmNotifPrefs = {
   clientUpdates: boolean;
@@ -86,21 +91,24 @@ function TabNavButton({ id, label, icon, active, onClick }: { id: string; label:
 export function PmSettingsScreen({
   profile,
   notifPrefs,
-  teamMembers,
+  team,
   branding,
   figmaConnection,
   archivedProjects,
   archivedPages,
+  isAdmin,
 }: {
   profile: Profile;
   notifPrefs: PmNotifPrefs;
-  teamMembers: TeamInvitation[];
+  team: TeamData;
   branding: BrandingSettings | null;
   figmaConnection: FigmaConnection | null;
   archivedProjects: Project[];
   archivedPages: (Page & { project: { name: string } | null })[];
+  isAdmin: boolean;
 }) {
   const [tab, setTab] = React.useState<TabId>("account");
+  const tabs = TABS.filter((t) => isAdmin || !ADMIN_TABS.includes(t.id));
 
   return (
     <>
@@ -111,7 +119,7 @@ export function PmSettingsScreen({
           {/* Left: Tab nav */}
           <div style={{ width: 200, flexShrink: 0 }}>
             <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-              {TABS.map((t) => (
+              {tabs.map((t) => (
                 <TabNavButton key={t.id} id={t.id} label={t.label} icon={t.icon} active={tab === t.id} onClick={() => setTab(t.id)} />
               ))}
             </nav>
@@ -121,7 +129,7 @@ export function PmSettingsScreen({
           <div style={{ flex: 1, minWidth: 0 }}>
             {tab === "account" && <AccountTab profile={profile} />}
             {tab === "notifications" && <NotificationsTab userId={profile.id} initial={notifPrefs} />}
-            {tab === "team" && <TeamTab pmId={profile.id} initial={teamMembers} />}
+            {tab === "team" && <TeamTab team={team} currentUserId={profile.id} />}
             {tab === "branding" && <BrandingTab pmId={profile.id} initial={branding} />}
             {tab === "integrations" && <IntegrationsTab initial={figmaConnection} />}
             {tab === "archive" && <ArchiveTab initialProjects={archivedProjects} initialPages={archivedPages} />}
@@ -263,89 +271,238 @@ function NotificationsTab({ userId, initial }: { userId: string; initial: PmNoti
 }
 
 // ── Team ─────────────────────────────────────────────────────────
-function TeamTab({ pmId, initial }: { pmId: string; initial: TeamInvitation[] }) {
-  const [teamMembers, setTeamMembers] = React.useState<TeamInvitation[]>(initial);
-  const [inviteEmail, setInviteEmail] = React.useState("");
-  const [inviteRole, setInviteRole] = React.useState<TeamRole>("Editor");
-  const [inviteSent, setInviteSent] = React.useState(false);
-  const [inviting, setInviting] = React.useState(false);
+export type TeamData = {
+  ownerId: string;
+  members: { userId: string; role: WorkspaceRole; name: string; email: string; avatarUrl: string | null; projectIds: string[] }[];
+  invitations: Invitation[];
+  projects: { id: string; name: string }[];
+};
 
-  const handleInvite = async () => {
-    if (!inviteEmail) return;
-    setInviting(true);
-    const supabase = createClient();
-    // No real invitation email is sent — this only records the invite row.
-    const { data, error } = await supabase
-      .from("team_invitations")
-      .insert({ pm_id: pmId, email: inviteEmail, role: inviteRole, status: "Pending" })
-      .select("*")
-      .single();
-    setInviting(false);
-    if (!error && data) {
-      setTeamMembers((m) => [data as TeamInvitation, ...m]);
-      setInviteEmail("");
-      setInviteSent(true);
-      setTimeout(() => setInviteSent(false), 3000);
-    }
+const ROLE_LABEL: Record<InvitationRole, string> = { admin: "Admin", editor: "Editor", client: "Client" };
+const ROLE_HELP: Record<InvitationRole, string> = {
+  editor: "Agency teammate — adds, removes and edits pages in the projects you pick.",
+  admin: "Manages everything: projects, clients, team and settings.",
+  client: "Edits the copy on the pages of the projects you pick. Creates nothing.",
+};
+
+function RolePill({ role }: { role: InvitationRole }) {
+  return (
+    <span style={{ fontSize: 12, color: "#71717b", fontFamily: "var(--font-sans)", background: "#f4f4f5", padding: "3px 8px", borderRadius: 6, flexShrink: 0 }}>{ROLE_LABEL[role]}</span>
+  );
+}
+
+function InviteOutcome({ result, onDismiss }: { result: InviteResult; onDismiss: () => void }) {
+  const [copied, setCopied] = React.useState(false);
+  if (!result.ok) {
+    return (
+      <div style={{ marginBottom: 16, padding: "10px 14px", background: "#fff5f5", border: "1px solid #fecaca", borderRadius: 8, fontSize: 13, color: "#e7000b", fontFamily: "var(--font-body)" }}>
+        {result.error}
+      </div>
+    );
+  }
+  const copy = () => {
+    navigator.clipboard?.writeText(result.link);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
+  return (
+    <div
+      style={{
+        marginBottom: 16,
+        padding: "12px 14px",
+        background: result.emailSent ? "#f0fdf4" : "#fffbeb",
+        border: `1px solid ${result.emailSent ? "#bbf7d0" : "#fde68a"}`,
+        borderRadius: 8,
+        fontFamily: "var(--font-body)",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <Icon name={result.emailSent ? "check-circle" : "alert-circle"} size={14} color={result.emailSent ? "#15803d" : "#b45309"} />
+        <span style={{ fontSize: 13, color: result.emailSent ? "#15803d" : "#92400e", flex: 1 }}>
+          {result.emailSent ? "Invitation email sent." : "The invitation is ready, but the email couldn't be sent. Share the link yourself:"}
+        </span>
+        <button onClick={onDismiss} style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }} aria-label="Dismiss">
+          <Icon name="x" size={13} color="#a1a1aa" />
+        </button>
+      </div>
+      {!result.emailSent && result.emailError && <div style={{ fontSize: 12, color: "#92400e", marginTop: 4, paddingLeft: 22 }}>{result.emailError}</div>}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, paddingLeft: 22 }}>
+        <code style={{ flex: 1, minWidth: 0, fontSize: 12, color: "#09090b", background: "#fff", border: "1px solid #e4e4e7", borderRadius: 6, padding: "6px 8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {result.link}
+        </code>
+        <Btn variant="outline" size="sm" icon={copied ? "check" : "link"} onClick={copy}>
+          {copied ? "Copied" : "Copy link"}
+        </Btn>
+      </div>
+    </div>
+  );
+}
+
+function TeamTab({ team, currentUserId }: { team: TeamData; currentUserId: string }) {
+  const [email, setEmail] = React.useState("");
+  const [role, setRole] = React.useState<InvitationRole>("editor");
+  const [picked, setPicked] = React.useState<string[]>([]);
+  const [outcome, setOutcome] = React.useState<InviteResult | null>(null);
+  const [confirmRemove, setConfirmRemove] = React.useState<string | null>(null);
+  const [copiedId, setCopiedId] = React.useState<string | null>(null);
+  const [pending, startTransition] = React.useTransition();
+
+  const projectName = (id: string) => team.projects.find((p) => p.id === id)?.name;
+  const projectList = (ids: string[]) => ids.map(projectName).filter(Boolean).join(", ");
+  const needsProjects = role !== "admin";
+  const canSend = /^\S+@\S+\.\S+$/.test(email.trim()) && (!needsProjects || picked.length > 0);
+
+  const togglePick = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+
+  const send = () =>
+    startTransition(async () => {
+      const res = await createInvitation({ email, role, projectIds: needsProjects ? picked : [] });
+      setOutcome(res);
+      if (res.ok) {
+        setEmail("");
+        setPicked([]);
+      }
+    });
+
+  const resend = (id: string) => startTransition(async () => setOutcome(await resendInvitation(id)));
+
+  const revoke = (id: string) =>
+    startTransition(async () => {
+      const res = await revokeInvitation(id);
+      if (!res.ok) setOutcome({ ok: false, error: res.error || "Could not cancel the invitation." });
+    });
+
+  const remove = (userId: string) =>
+    startTransition(async () => {
+      const res = await removeMember(userId);
+      setConfirmRemove(null);
+      if (!res.ok) setOutcome({ ok: false, error: res.error || "Could not remove this person." });
+    });
+
+  const copyLink = (inv: Invitation) => {
+    navigator.clipboard?.writeText(`${window.location.origin}/invite/${inv.token}`);
+    setCopiedId(inv.id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const rowStyle = (last: boolean): React.CSSProperties => ({
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    padding: "12px 0",
+    borderBottom: last ? "none" : "1px solid #f4f4f5",
+  });
 
   return (
     <div>
       <SectionTitle>Team Members</SectionTitle>
       <Card style={{ marginBottom: 20 }}>
-        {teamMembers.length === 0 ? (
-          <div style={{ fontSize: 13, color: "#a1a1aa", fontFamily: "var(--font-body)", padding: "8px 0" }}>No team members invited yet.</div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-            {teamMembers.map((m, i) => (
-              <div
-                key={m.id}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  padding: "12px 0",
-                  borderBottom: i < teamMembers.length - 1 ? "1px solid #f4f4f5" : "none",
-                }}
-              >
-                <Avatar name={m.email} size={36} />
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          {team.members.map((m, i) => {
+            const removable = m.userId !== team.ownerId && m.userId !== currentUserId;
+            return (
+              <div key={m.userId} style={rowStyle(i === team.members.length - 1)}>
+                <Avatar name={m.name} size={36} src={m.avatarUrl} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 500, color: "#09090b", fontFamily: "var(--font-sans)" }}>{m.email}</div>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: "#09090b", fontFamily: "var(--font-sans)" }}>
+                    {m.name}
+                    {m.userId === currentUserId && <span style={{ color: "#a1a1aa", fontWeight: 400 }}> (you)</span>}
+                  </div>
+                  <div style={{ fontSize: 12, color: "#71717b", fontFamily: "var(--font-body)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {m.email}
+                    {m.role === "editor" && (m.projectIds.length ? ` · ${projectList(m.projectIds)}` : " · no projects")}
+                  </div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <Badge color={m.status === "Pending" ? "#fff7ed" : "#f0fdf4"}>
-                    <span style={{ color: m.status === "Pending" ? "#c2410c" : "#15803d" }}>{m.status}</span>
-                  </Badge>
-                  <span style={{ fontSize: 12, color: "#71717b", fontFamily: "var(--font-sans)", background: "#f4f4f5", padding: "3px 8px", borderRadius: 6 }}>{m.role}</span>
-                </div>
+                {m.userId === team.ownerId ? (
+                  <span style={{ fontSize: 12, color: "#7f22fe", fontFamily: "var(--font-sans)", background: "#f5f3ff", padding: "3px 8px", borderRadius: 6 }}>Owner</span>
+                ) : (
+                  <RolePill role={m.role} />
+                )}
+                {removable &&
+                  (confirmRemove === m.userId ? (
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <Btn variant="destructive" size="sm" disabled={pending} onClick={() => remove(m.userId)}>
+                        Remove
+                      </Btn>
+                      <Btn variant="outline" size="sm" onClick={() => setConfirmRemove(null)}>
+                        Keep
+                      </Btn>
+                    </div>
+                  ) : (
+                    <Btn variant="ghost" size="sm" icon="trash" title="Remove from team" onClick={() => setConfirmRemove(m.userId)} />
+                  ))}
               </div>
-            ))}
-          </div>
-        )}
+            );
+          })}
+        </div>
       </Card>
 
-      <SectionTitle>Invite Member</SectionTitle>
+      {team.invitations.length > 0 && (
+        <>
+          <SectionTitle>Pending Invitations</SectionTitle>
+          <Card style={{ marginBottom: 20 }}>
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              {team.invitations.map((inv, i) => (
+                <div key={inv.id} style={rowStyle(i === team.invitations.length - 1)}>
+                  <Avatar name={inv.email} size={36} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 500, color: "#09090b", fontFamily: "var(--font-sans)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inv.email}</div>
+                    <div style={{ fontSize: 12, color: "#71717b", fontFamily: "var(--font-body)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      Invited {formatDate(inv.created_at)}
+                      {inv.role !== "admin" && inv.project_ids.length > 0 && ` · ${projectList(inv.project_ids)}`}
+                    </div>
+                  </div>
+                  <RolePill role={inv.role} />
+                  <div style={{ display: "flex", gap: 2 }}>
+                    <Btn variant="ghost" size="sm" icon={copiedId === inv.id ? "check" : "link"} title="Copy invite link" onClick={() => copyLink(inv)} />
+                    <Btn variant="ghost" size="sm" icon="send" title="Send the email again" disabled={pending} onClick={() => resend(inv.id)} />
+                    <Btn variant="ghost" size="sm" icon="x" title="Cancel invitation" disabled={pending} onClick={() => revoke(inv.id)} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </>
+      )}
+
+      <SectionTitle>Invite Someone</SectionTitle>
       <Card>
-        {inviteSent && (
-          <div style={{ marginBottom: 16, padding: "10px 14px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, display: "flex", alignItems: "center", gap: 8 }}>
-            <Icon name="check-circle" size={14} color="#15803d" />
-            <span style={{ fontSize: 13, color: "#15803d", fontFamily: "var(--font-body)" }}>Invitation sent!</span>
-          </div>
-        )}
+        {outcome && <InviteOutcome result={outcome} onDismiss={() => setOutcome(null)} />}
         <div style={{ display: "flex", gap: 10 }}>
           <div style={{ flex: 1 }}>
-            <FieldInput label="Email address" value={inviteEmail} onChange={setInviteEmail} placeholder="colleague@agency.co" type="email" />
+            <FieldInput label="Email address" value={email} onChange={setEmail} placeholder="name@company.com" type="email" />
           </div>
-          <div style={{ width: 140, paddingTop: 20 }}>
+          <div style={{ width: 140 }}>
             <SelectInput
-              value={inviteRole}
-              onChange={(v) => setInviteRole(v as TeamRole)}
-              options={(["Admin", "Editor", "Viewer"] as TeamRole[]).map((r) => ({ value: r, label: r }))}
+              label="Role"
+              value={role}
+              onChange={(v) => setRole(v as InvitationRole)}
+              options={(["editor", "admin", "client"] as InvitationRole[]).map((r) => ({ value: r, label: ROLE_LABEL[r] }))}
             />
           </div>
         </div>
-        <Btn variant="primary" size="sm" icon="send" onClick={handleInvite} disabled={!inviteEmail || inviting} style={{ marginTop: 12 }}>
-          Send invitation
+        <div style={{ fontSize: 12, color: "#71717b", fontFamily: "var(--font-body)", marginTop: 8 }}>{ROLE_HELP[role]}</div>
+
+        {needsProjects && (
+          <div style={{ marginTop: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 500, color: "#09090b", fontFamily: "var(--font-sans)", marginBottom: 8 }}>Projects</div>
+            {team.projects.length === 0 ? (
+              <div style={{ fontSize: 13, color: "#a1a1aa", fontFamily: "var(--font-body)" }}>Create a project first.</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 180, overflowY: "auto" }}>
+                {team.projects.map((p) => (
+                  <label key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#09090b", fontFamily: "var(--font-body)", cursor: "pointer" }}>
+                    <input type="checkbox" checked={picked.includes(p.id)} onChange={() => togglePick(p.id)} style={{ accentColor: "#7f22fe", width: 15, height: 15 }} />
+                    {p.name}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        <Btn variant="primary" size="sm" icon="send" onClick={send} disabled={!canSend || pending} style={{ marginTop: 16 }}>
+          {pending ? "Sending…" : "Send invitation"}
         </Btn>
       </Card>
     </div>
@@ -562,7 +719,7 @@ function ArchiveTab({
     const { error } = await supabase.from("projects").update({ archived_at: null }).eq("id", id);
     setRestoringId(null);
     if (error) {
-      alert(`Couldn't restore project: ${error.message}`);
+      alert(planLimitError(error) ?? `Couldn't restore project: ${error.message}`);
       return;
     }
     setProjects((ps) => ps.filter((p) => p.id !== id));
@@ -575,7 +732,7 @@ function ArchiveTab({
     const { error } = await supabase.from("pages").update({ archived_at: null }).eq("id", id);
     setRestoringId(null);
     if (error) {
-      alert(`Couldn't restore page: ${error.message}`);
+      alert(planLimitError(error) ?? `Couldn't restore page: ${error.message}`);
       return;
     }
     setPages((ps) => ps.filter((p) => p.id !== id));
