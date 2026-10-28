@@ -1,13 +1,12 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getUser } from "@/lib/auth";
 import { requireAdmin } from "@/lib/workspace";
 import { ClientsScreen } from "@/components/screens/clients-screen";
 
 export default async function ClientsPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getUser();
   if (!user) redirect("/login");
   // Managing client companies is admin-only.
   const ctx = await requireAdmin(supabase, user.id);

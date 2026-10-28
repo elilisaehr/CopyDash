@@ -1,53 +1,34 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getUser } from "@/lib/auth";
 import { getWorkspaceContext } from "@/lib/workspace";
 import { PmProjectsScreen, type ProjectWithStats } from "@/components/screens/pm-projects-screen";
 import type { Client, Project } from "@/lib/supabase/types";
 
-type ProjectRow = Project & { client: Pick<Client, "name"> | null };
+type ProjectRow = Project & { client: Pick<Client, "name"> | null; pages: { status: string }[] };
 
 export default async function PmProjectsPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getUser();
   if (!user) redirect("/login");
   const ctx = await getWorkspaceContext(supabase, user.id);
   if (!ctx) redirect("/onboarding");
 
+  // Page statuses come along with each project, so the stats need no second request.
   const { data: projectRows } = await supabase
     .from("projects")
-    .select("*, client:clients(name)")
+    .select("*, client:clients(name), pages(status)")
     .eq("workspace_id", ctx.workspace.id)
     .is("archived_at", null)
+    .is("pages.archived_at", null)
     .order("updated_at", { ascending: false });
 
-  const rows = (projectRows ?? []) as ProjectRow[];
-  const projectIds = rows.map((p) => p.id);
-
-  let pageRows: { project_id: string; status: string }[] = [];
-  if (projectIds.length > 0) {
-    const { data } = await supabase.from("pages").select("project_id, status").in("project_id", projectIds).is("archived_at", null);
-    pageRows = data ?? [];
-  }
-
-  const pageStats = new Map<string, { total: number; completed: number }>();
-  for (const row of pageRows) {
-    const s = pageStats.get(row.project_id) ?? { total: 0, completed: 0 };
-    s.total += 1;
-    if (row.status === "Completed") s.completed += 1;
-    pageStats.set(row.project_id, s);
-  }
-
-  const projects: ProjectWithStats[] = rows.map(({ client, ...rest }) => {
-    const s = pageStats.get(rest.id) ?? { total: 0, completed: 0 };
-    return {
-      ...rest,
-      clientName: client?.name ?? "—",
-      pageCount: s.total,
-      completedPageCount: s.completed,
-    };
-  });
+  const projects: ProjectWithStats[] = ((projectRows ?? []) as ProjectRow[]).map(({ client, pages, ...rest }) => ({
+    ...rest,
+    clientName: client?.name ?? "—",
+    pageCount: pages.length,
+    completedPageCount: pages.filter((p) => p.status === "Completed").length,
+  }));
 
   return <PmProjectsScreen projects={projects} isAdmin={ctx.role === "admin"} />;
 }

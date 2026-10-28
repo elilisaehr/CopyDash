@@ -1,20 +1,16 @@
 import { createClient } from "@/lib/supabase/server";
-import { ensureProfile } from "@/lib/auth";
-import { getWorkspaceContext } from "@/lib/workspace";
+import { getProfile, getUser } from "@/lib/auth";
+import { getWorkspaceContext, type WorkspaceContext } from "@/lib/workspace";
 import { PmSettingsScreen, PM_NOTIF_DEFAULTS, type PmNotifPrefs } from "@/components/screens/pm-settings-screen";
-import type { TeamInvitation, BrandingSettings, FigmaConnection, Project, Page } from "@/lib/supabase/types";
+import type { Profile, TeamInvitation, BrandingSettings, FigmaConnection, Project, Page } from "@/lib/supabase/types";
 
 export default async function PmSettingsPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
   // app/pm/layout.tsx already redirects unauthenticated users (and
   // non-PMs) before this page ever renders, so `user` is guaranteed here.
-  const profile = await ensureProfile(supabase, user!);
-  // The layout also guarantees a workspace.
-  const ctx = (await getWorkspaceContext(supabase, user!.id))!;
+  const user = (await getUser())!;
+  // The layout also guarantees a profile and a workspace.
+  const [profile, ctx] = (await Promise.all([getProfile(), getWorkspaceContext(supabase, user.id)])) as [Profile, WorkspaceContext];
 
   const [{ data: notifRow }, { data: team }, { data: branding }, { data: figmaConnection }, { data: archivedProjects }, { data: archivedPages }] =
     await Promise.all([

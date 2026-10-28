@@ -14,22 +14,23 @@ export interface WorkspaceContext {
 
 /** The user's workspace (admin memberships first), or null if they have none yet. */
 export const getWorkspaceContext = cache(async (supabase: SupabaseClient, userId: string): Promise<WorkspaceContext | null> => {
+  // One round trip: the plan's limits come along through workspaces.plan → plan_limits.
   const { data: membership } = await supabase
     .from("workspace_members")
-    .select("role, workspace:workspaces(*)")
+    .select("role, workspace:workspaces(*, limits:plan_limits(*))")
     .eq("user_id", userId)
     .order("role", { ascending: true }) // 'admin' < 'editor'
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
-  const workspace = membership?.workspace as unknown as Workspace | null;
-  if (!membership || !workspace) return null;
+  const joined = membership?.workspace as unknown as (Workspace & { limits: PlanLimits | null }) | null;
+  if (!membership || !joined) return null;
 
-  const { data: limits } = await supabase.from("plan_limits").select("*").eq("plan", workspace.plan).maybeSingle();
+  const { limits, ...workspace } = joined;
   return {
     workspace,
     role: membership.role as WorkspaceRole,
-    limits: (limits as PlanLimits | null) ?? { plan: workspace.plan, max_projects: null, max_pages_per_project: null, max_members: null },
+    limits: limits ?? { plan: workspace.plan, max_projects: null, max_pages_per_project: null, max_members: null },
   };
 });
 

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { ensureProfile } from "@/lib/auth";
+import { getProfile, getUser } from "@/lib/auth";
 import { getWorkspaceContext } from "@/lib/workspace";
 import { OnboardingScreen } from "@/components/screens/onboarding-screen";
 
@@ -9,15 +9,11 @@ import { OnboardingScreen } from "@/components/screens/onboarding-screen";
 // someone who left after step 1 resumes at step 2.
 export default async function OnboardingPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getUser();
   if (!user) redirect("/login");
 
-  const profile = await ensureProfile(supabase, user);
-  if (profile.role !== "pm") redirect("/client");
-
-  const ctx = await getWorkspaceContext(supabase, user.id);
+  const [profile, ctx] = await Promise.all([getProfile(), getWorkspaceContext(supabase, user.id)]);
+  if (!profile || profile.role !== "pm") redirect("/client");
   if (ctx) {
     if (ctx.role !== "admin") redirect("/pm");
     const { count } = await supabase.from("projects").select("id", { count: "exact", head: true }).eq("workspace_id", ctx.workspace.id);
