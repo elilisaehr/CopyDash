@@ -26,7 +26,7 @@ export function AuthVisual() {
           flexDirection: "column",
           background: "#fff",
           borderRadius: "14px 14px 0 0",
-          boxShadow: "0 0 0 1px rgba(255,255,255,0.08), 0 32px 64px -24px rgba(16,6,40,0.9)",
+          boxShadow: "0 0 0 1px rgba(76,29,149,0.08), 0 28px 56px -28px rgba(76,29,149,0.28)",
           overflow: "hidden",
         }}
       >
@@ -80,7 +80,7 @@ export function AuthVisual() {
           padding: "11px 13px",
           background: "#fff",
           borderRadius: 10,
-          boxShadow: "0 0 0 1px rgba(9,9,11,0.06), 0 18px 36px -12px rgba(16,6,40,0.75)",
+          boxShadow: "0 0 0 1px rgba(76,29,149,0.1), 0 16px 32px -12px rgba(76,29,149,0.3)",
         }}
       >
         <div style={{ fontSize: 11, fontWeight: 600, color: "#09090b", fontFamily: sans, marginBottom: 4 }}>Marketing</div>
