@@ -103,7 +103,8 @@ export async function resendProjectInvitation(projectId: string, invitationId: s
 
   const result = await deliverInvitation(inv, { workspaceName, inviterName: profile.name || "Your team" });
   const projects = role === "admin" ? [] : await editorProjectIds(profile.id);
-  if (result.ok && !result.emailSent && !canSeeInviteLink(role, inv, projects)) {
+  if (result.ok && !canSeeInviteLink(role, inv, projects)) {
+    if (result.emailSent) return { ...result, link: "" };
     return { ok: false, error: `The email couldn't be sent. Ask an admin to share the link. (${result.emailError ?? "Unknown error"})` };
   }
   return result;

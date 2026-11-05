@@ -161,7 +161,7 @@ function AccountTab({ profile }: { profile: Profile }) {
     const supabase = createClient();
     await supabase
       .from("profiles")
-      .update({ name: form.name, email: form.email, company: form.company, phone: form.phone })
+      .update({ name: form.name, company: form.company, phone: form.phone })
       .eq("id", profile.id);
     setSaving(false);
     setSaved(true);
@@ -186,7 +186,7 @@ function AccountTab({ profile }: { profile: Profile }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
             <FieldInput label="Full Name" value={form.name} onChange={(v) => setForm((f) => ({ ...f, name: v }))} placeholder="Your name" />
-            <FieldInput label="Email" value={form.email} onChange={(v) => setForm((f) => ({ ...f, email: v }))} placeholder="you@company.com" type="email" />
+            <FieldInput label="Email" value={form.email} onChange={() => {}} type="email" disabled helper="This is the address you sign in with." />
           </div>
           <FieldInput label="Company" value={form.company} onChange={(v) => setForm((f) => ({ ...f, company: v }))} placeholder="Your company" />
         </div>
@@ -324,14 +324,14 @@ export function InviteOutcome({ result, onDismiss }: { result: InviteResult; onD
         </button>
       </div>
       {!result.emailSent && result.emailError && <div style={{ fontSize: 12, color: "#92400e", marginTop: 4, paddingLeft: 22 }}>{result.emailError}</div>}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, paddingLeft: 22 }}>
+      {result.link && <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, paddingLeft: 22 }}>
         <code style={{ flex: 1, minWidth: 0, fontSize: 12, color: "#09090b", background: "#fff", border: "1px solid #e4e4e7", borderRadius: 6, padding: "6px 8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {result.link}
         </code>
         <Btn variant="outline" size="sm" icon={copied ? "check" : "link"} onClick={copy}>
           {copied ? "Copied" : "Copy link"}
         </Btn>
-      </div>
+      </div>}
     </div>
   );
 }

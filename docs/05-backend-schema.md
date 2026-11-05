@@ -254,6 +254,12 @@ All tables have RLS enabled. The general pattern:
 - **Plan limits** (`plan_limits`): `max_projects`, `max_pages_per_project`, `max_members`, `max_contributors` (0009), null = unlimited. The contributor limit is enforced by trigger `check_contributor_limit` on `invitations`: it counts distinct people, contributors on active projects plus pending contributor invitations. Currently null on every plan.
 - Storage (`pdfs` bucket): same pattern via a `is_pm_of_project()`/`is_member_of_project()` check on the path's leading folder (`{project_id}/...`).
 
+**Guards on direct writes (0009 triggers; skipped for server-side work, where there's no signed-in user):**
+- `profiles_guard`: `email` always mirrors the login in `auth.users`; `role` can't change after creation.
+- `comments_guard`: author, name and badge come from the session, the page must belong to the project; afterwards only `resolved` can change, plus `body` for its author.
+- `copy_only_guard` (`fields`, `design_edits`): contributors change `content` only, and can't create history. Skipped inside the hand-off trigger, which writes the baselines.
+- `hand_over_former_admin` (`workspace_members`): when an admin is removed or demoted, their `pm_id` on the workspace's projects, clients and activity goes to the owner, because `pm_id` also gives admin rights.
+
 ## Data validation
 
 - Enforced via Postgres `check` constraints on enum-like fields (`role`, `status` fields, `label` is free text but `is_primary` is boolean-gated).

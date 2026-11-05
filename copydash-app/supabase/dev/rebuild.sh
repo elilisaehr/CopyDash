@@ -14,3 +14,4 @@ for f in "$MIG"/000[7-9]*.sql "$MIG"/001*.sql(N); do echo "apply $(basename "$f"
 node --env-file="$ENV" rls-test.cjs
 node --env-file="$ENV" review-test.cjs
 node --env-file="$ENV" single-space-test.cjs
+node --env-file="$ENV" security-test.cjs

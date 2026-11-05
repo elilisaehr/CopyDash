@@ -131,3 +131,108 @@ begin
   return new;
 end;
 $$;
+
+-- ── security audit ────────────────────────────────────────────────────
+-- Direct calls with the public key used to be able to do what follows. All of
+-- it is skipped for server-side work (no signed-in user).
+
+-- Profiles: the email always mirrors the login, and the account type is fixed.
+create or replace function public.profiles_guard()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then return new; end if;
+  new.email := coalesce((select email from auth.users where id = new.id), new.email);
+  if tg_op = 'UPDATE' then new.role := old.role; end if;
+  return new;
+end;
+$$;
+drop trigger if exists profiles_guard on public.profiles;
+create trigger profiles_guard
+  before insert or update on public.profiles
+  for each row execute function public.profiles_guard();
+
+-- Comments: author, name and badge come from the session; afterwards anyone on
+-- the project can resolve one, and only its author can reword it.
+create or replace function public.comments_guard()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then return new; end if;
+  if tg_op = 'INSERT' then
+    if not exists (select 1 from public.pages where id = new.page_id and project_id = new.project_id) then
+      raise exception 'This page is not part of this project.' using errcode = '42501';
+    end if;
+    new.author_id := auth.uid();
+    new.author_name := coalesce((select nullif(name, '') from public.profiles where id = auth.uid()), 'Someone');
+    new.role := case when public.is_agency_of_project(new.project_id) then 'pm' else 'client' end;
+    return new;
+  end if;
+  if (to_jsonb(new) - 'resolved' - 'body') is distinct from (to_jsonb(old) - 'resolved' - 'body')
+     or (new.body is distinct from old.body and old.author_id <> auth.uid()) then
+    raise exception 'You can only resolve this comment.' using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists comments_guard on public.comments;
+create trigger comments_guard
+  before insert or update on public.comments
+  for each row execute function public.comments_guard();
+
+-- Copy: contributors change the text and nothing else (labels, limits, the
+-- "what changed" history). Runs before stamp_copy_editor (triggers fire in name
+-- order); pg_trigger_depth lets the hand-off snapshot through (record_page_handoff).
+create or replace function public.copy_only_guard()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  v_project uuid;
+begin
+  if auth.uid() is null or pg_trigger_depth() > 1 then return new; end if;
+  select project_id into v_project from public.pages where id = new.page_id;
+  if public.is_agency_of_project(v_project) then return new; end if;
+  if tg_op = 'INSERT' then
+    new.baseline := null;
+    new.prev_baseline := null;
+    return new;
+  end if;
+  if (to_jsonb(new) - 'content' - 'updated_at') is distinct from (to_jsonb(old) - 'content' - 'updated_at') then
+    raise exception 'Contributors can only edit the copy of a page.' using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists copy_only_guard on public.fields;
+create trigger copy_only_guard
+  before insert or update on public.fields
+  for each row execute function public.copy_only_guard();
+drop trigger if exists copy_only_guard on public.design_edits;
+create trigger copy_only_guard
+  before insert or update on public.design_edits
+  for each row execute function public.copy_only_guard();
+
+-- A removed or demoted admin keeps nothing: "created by" (pm_id) also gives
+-- admin rights, so what they created goes to the workspace owner.
+create or replace function public.hand_over_former_admin()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  v_owner uuid;
+begin
+  if tg_op = 'UPDATE' and new.role = 'admin' then return new; end if;
+  select owner_id into v_owner from public.workspaces where id = old.workspace_id;
+  if v_owner is null or v_owner = old.user_id then return new; end if;
+  update public.activity_log set pm_id = v_owner
+    where pm_id = old.user_id and project_id in (select id from public.projects where workspace_id = old.workspace_id);
+  update public.projects set pm_id = v_owner where workspace_id = old.workspace_id and pm_id = old.user_id;
+  update public.clients set pm_id = v_owner where workspace_id = old.workspace_id and pm_id = old.user_id;
+  return coalesce(new, old);
+end;
+$$;
+drop trigger if exists hand_over_former_admin on public.workspace_members;
+create trigger hand_over_former_admin
+  after delete or update of role on public.workspace_members
+  for each row execute function public.hand_over_former_admin();
+
+-- The same for admins removed before this migration.
+update public.projects p set pm_id = w.owner_id
+from public.workspaces w
+where w.id = p.workspace_id and p.pm_id <> w.owner_id
+  and not exists (select 1 from public.workspace_members m where m.workspace_id = p.workspace_id and m.user_id = p.pm_id and m.role = 'admin');

@@ -8,6 +8,7 @@ import { siteUrl } from "@/lib/site-url";
 import type { Invitation } from "@/lib/supabase/types";
 
 export type InviteResult =
+  // link is empty when this viewer isn't allowed to see it.
   | { ok: true; link: string; emailSent: boolean; emailError?: string }
   | { ok: false; error: string };
 

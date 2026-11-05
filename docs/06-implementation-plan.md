@@ -90,6 +90,22 @@ Steps, each one tested on dev before the next:
 
 **Release checklist:** (1) paste `0009_single_space.sql` into the **prod** SQL editor just before merging; (2) PR + Vercel preview, tested with a real account; (3) merge; (4) paste `0009` again to fill the company of any project created in between.
 
+**Security audit (2026-11-05, `vibe-security` skill).** Fixed in `0009` and the code, with attack tests in `supabase/dev/security-test.cjs` (run by `rebuild.sh`):
+- Taking a client company's email on your own profile gave access to its projects (old triggers from `0002`, **live on prod until `0009` is applied**).
+- Comments could be rewritten or forged by any project member, and could target a page of another project.
+- Contributors could change field labels, limits and the "what changed" history, not only the text.
+- Profile email and account type could be changed freely; the email is now always the login's (read-only in Settings).
+- A removed or demoted admin kept admin rights on the projects they created; these now go to the workspace owner.
+- Resending an invitation returned its link to an editor who wasn't allowed to see it.
+- Added security headers (framing, referrer, MIME type) and `server-only` on the Supabase server client.
+
+**Must be done before inviting real people (with the verified Resend domain):**
+1. **Prove email ownership when an account is created from an invitation.** `createAccountAndAccept` confirms the email automatically because "the link proves it", but anyone can sign up, invite someone else's address, copy the link and create a confirmed account with their own password on that address. Needs working email, so the invitation link alone must stop being enough (confirmation email or code).
+2. **Limit the emails a person can trigger** (invitations and resends per user per day). Today anyone can sign up and have CopyDash send invitations with their own workspace name to any address, which would damage the domain's reputation.
+3. **Add "forgot password".** It doesn't exist, so someone locked out, or whose address was taken as in point 1, has no way back.
+
+**Later:** invitation links never expire (add an expiry); `signInAndAccept` allows password guesses through our server, so Supabase's per-address limits matter (check them, add a limit with point 2); Figma tokens are stored unencrypted (protected by access rules); a person can create extra workspaces to get around the free plan's limits (handle in step D); confirm that Vercel's Preview environment doesn't use production keys. CSP is limited to `frame-ancestors` for now.
+
 **Left to delete:** `components/screens/clients-screen.tsx`, then `inviteClient` in `lib/actions/invitations.ts`, `app/client/loading.tsx`, and the `Client` / `ClientEmail` types. Unreachable, but they must go together or the build breaks. `app/client/*` and `app/pm/clients` stay as small redirect pages for old links.
 
 Out of scope: real email domain (still needed before inviting real people), changing someone's role after they joined, a person switching between several workspaces, dropping the old tables.

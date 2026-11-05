@@ -138,7 +138,7 @@ function AccountTab({ profile, project }: { profile: Profile; project: { name: s
     const supabase = createClient();
     await supabase
       .from("profiles")
-      .update({ name: form.name, email: form.email, phone: form.phone, language: form.language })
+      .update({ name: form.name, phone: form.phone, language: form.language })
       .eq("id", profile.id);
     setSaving(false);
     setSaved(true);
@@ -166,7 +166,7 @@ function AccountTab({ profile, project }: { profile: Profile; project: { name: s
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
             <FieldInput label="Full Name" value={form.name} onChange={(v) => setForm((f) => ({ ...f, name: v }))} placeholder="Your name" />
-            <FieldInput label="Email" value={form.email} onChange={(v) => setForm((f) => ({ ...f, email: v }))} placeholder="you@company.com" type="email" />
+            <FieldInput label="Email" value={form.email} onChange={() => {}} type="email" disabled helper="This is the address you sign in with." />
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
             <FieldInput label="Phone (optional)" value={form.phone} onChange={(v) => setForm((f) => ({ ...f, phone: v }))} placeholder="+1 555 000 0000" />
