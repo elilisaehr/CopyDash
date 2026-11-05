@@ -1,16 +1,25 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfile, getUser } from "@/lib/auth";
-import { getWorkspaceContext, type WorkspaceContext } from "@/lib/workspace";
-import { PmSettingsScreen, PM_NOTIF_DEFAULTS, type PmNotifPrefs, type TeamData } from "@/components/screens/pm-settings-screen";
+import { getWorkspaceContext } from "@/lib/workspace";
+import { SettingsScreen, TEAM_NOTIF_DEFAULTS, type TeamNotifPrefs, type TeamData } from "@/components/screens/settings-screen";
+import { ContributorSettingsScreen, CONTRIBUTOR_NOTIF_DEFAULTS, type ContributorNotifPrefs } from "@/components/screens/contributor-settings-screen";
 import type { Profile, BrandingSettings, FigmaConnection, Invitation, Project, Page, WorkspaceMember } from "@/lib/supabase/types";
 
-export default async function PmSettingsPage() {
+export default async function SettingsPage() {
   const supabase = await createClient();
-  // app/pm/layout.tsx already redirects unauthenticated users (and
-  // non-PMs) before this page ever renders, so `user` is guaranteed here.
+  // The layout already redirects signed-out users, and guarantees a profile.
   const user = (await getUser())!;
-  // The layout also guarantees a profile and a workspace.
-  const [profile, ctx] = (await Promise.all([getProfile(), getWorkspaceContext(supabase, user.id)])) as [Profile, WorkspaceContext];
+  const [profile, ctx] = (await Promise.all([getProfile(), getWorkspaceContext(supabase, user.id)])) as [Profile, Awaited<ReturnType<typeof getWorkspaceContext>>];
+
+  // Not in any workspace: a contributor. Account and notifications only.
+  if (!ctx) {
+    const [{ data: notifRow }, { data: project }] = await Promise.all([
+      supabase.from("notification_prefs").select("prefs").eq("user_id", user.id).maybeSingle(),
+      supabase.from("projects").select("name").is("archived_at", null).limit(1).maybeSingle(),
+    ]);
+    const prefs: ContributorNotifPrefs = { ...CONTRIBUTOR_NOTIF_DEFAULTS, ...(notifRow?.prefs || {}) };
+    return <ContributorSettingsScreen profile={profile} notifPrefs={prefs} project={project as { name: string } | null} />;
+  }
   const isAdmin = ctx.role === "admin";
 
   const [
@@ -61,10 +70,10 @@ export default async function PmSettingsPage() {
     projects: (activeProjects ?? []) as { id: string; name: string }[],
   };
 
-  const notifPrefs: PmNotifPrefs = { ...PM_NOTIF_DEFAULTS, ...(notifRow?.prefs || {}) };
+  const notifPrefs: TeamNotifPrefs = { ...TEAM_NOTIF_DEFAULTS, ...(notifRow?.prefs || {}) };
 
   return (
-    <PmSettingsScreen
+    <SettingsScreen
       profile={profile}
       notifPrefs={notifPrefs}
       team={team}

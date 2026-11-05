@@ -15,7 +15,7 @@ export type InviteMode = "create" | "signin" | "accept" | "mismatch" | "invalid"
 const ROLE_LINE: Record<InvitationRole, string> = {
   admin: "as an admin of the workspace",
   editor: "as an editor on their projects",
-  client: "to review and fill in your website copy",
+  client: "as a contributor, to review and fill in the website copy",
 };
 
 export function InviteScreen({
@@ -83,7 +83,7 @@ export function InviteScreen({
             <div>
               <h2 style={{ margin: "0 0 8px", fontSize: 24, fontWeight: 700, color: "#09090b", fontFamily: "var(--font-sans)" }}>This invitation can&rsquo;t be used</h2>
               <p style={{ margin: "0 0 24px", fontSize: 14, color: "#71717b", lineHeight: 1.6 }}>
-                It has already been accepted, or the agency cancelled it. Ask them to send you a new one — or sign in if you already joined.
+                It has already been accepted, or it was cancelled. Ask for a new one — or sign in if you already joined.
               </p>
               <Link href="/login" style={{ color: "#7f22fe", fontSize: 14, fontWeight: 500 }}>
                 Go to sign in

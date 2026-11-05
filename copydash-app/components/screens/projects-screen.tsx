@@ -8,25 +8,17 @@ import { RenameModal } from "@/components/ui/rename-modal";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate } from "@/lib/format";
-import type { PageStatus, Project } from "@/lib/supabase/types";
-
-/** `status` is derived from the pages (lib/review.ts projectStatus), not the legacy column. */
-export interface ProjectWithStats extends Omit<Project, "status"> {
-  status: PageStatus;
-  clientName: string;
-  pageCount: number;
-  completedPageCount: number;
-  toReviewCount: number;
-}
+import type { ProjectWithStats } from "@/lib/projects";
 
 const FILTER_TABS = ["All", "Pending Review", "In Progress", "Draft", "Completed"] as const;
 type FilterTab = (typeof FILTER_TABS)[number];
 
-export function PmProjectsScreen({ projects, isAdmin }: { projects: ProjectWithStats[]; /** Editors can't create, rename or archive projects. */ isAdmin: boolean }) {
+export function ProjectsScreen({ projects, canCreate }: { projects: ProjectWithStats[]; /** Only admins create projects. */ canCreate: boolean }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = React.useState<FilterTab>("All");
   const [search, setSearch] = React.useState("");
   const [renamingProject, setRenamingProject] = React.useState<ProjectWithStats | null>(null);
+  const [editingCompany, setEditingCompany] = React.useState<ProjectWithStats | null>(null);
 
   const handleRename = async (name: string) => {
     if (!renamingProject) return;
@@ -40,17 +32,28 @@ export function PmProjectsScreen({ projects, isAdmin }: { projects: ProjectWithS
     router.refresh();
   };
 
+  const handleCompany = async (company: string) => {
+    if (!editingCompany) return;
+    const { error } = await createClient().from("projects").update({ company }).eq("id", editingCompany.id);
+    if (error) {
+      alert(`Couldn't save the company: ${error.message}`);
+      return;
+    }
+    setEditingCompany(null);
+    router.refresh();
+  };
+
   const filtered = projects.filter((p) => {
     const matchTab = activeTab === "All" || p.status === activeTab;
     const q = search.trim().toLowerCase();
-    const matchSearch = !q || p.name.toLowerCase().includes(q) || p.clientName.toLowerCase().includes(q);
+    const matchSearch = !q || p.name.toLowerCase().includes(q) || p.company.toLowerCase().includes(q);
     return matchTab && matchSearch;
   });
 
   const stats = [
     { label: "Total Projects", value: projects.length, icon: "folder-open", subtitle: "All time" },
-    { label: "Pending Review", value: projects.filter((p) => p.status === "Pending Review").length, icon: "eye", color: "#1d4ed8", subtitle: "Your turn" },
-    { label: "In Progress", value: projects.filter((p) => p.status === "In Progress").length, icon: "clock", color: "#c2410c", subtitle: "Client's turn" },
+    { label: "Pending Review", value: projects.filter((p) => p.status === "Pending Review").length, icon: "eye", color: "#1d4ed8", subtitle: "Being reviewed" },
+    { label: "In Progress", value: projects.filter((p) => p.status === "In Progress").length, icon: "clock", color: "#c2410c", subtitle: "Contributors' turn" },
     { label: "Completed", value: projects.filter((p) => p.status === "Completed").length, icon: "check-circle", color: "#15803d", subtitle: "Every page completed" },
   ];
 
@@ -80,8 +83,8 @@ export function PmProjectsScreen({ projects, isAdmin }: { projects: ProjectWithS
                 }}
               />
             </div>
-            {isAdmin && (
-              <Btn variant="primary" icon="plus" onClick={() => router.push("/pm/projects/new")}>
+            {canCreate && (
+              <Btn variant="primary" icon="plus" onClick={() => router.push("/projects/new")}>
                 New Project
               </Btn>
             )}
@@ -129,7 +132,7 @@ export function PmProjectsScreen({ projects, isAdmin }: { projects: ProjectWithS
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ borderBottom: "1px solid #e4e4e7", background: "#fafafa" }}>
-                  {["Project Name", "Client", "Progress", "Status", "Last Updated", ""].map((h, i) => (
+                  {["Project Name", "Company", "Progress", "Status", "Last Updated", ""].map((h, i) => (
                     <th
                       key={i}
                       style={{
@@ -162,9 +165,10 @@ export function PmProjectsScreen({ projects, isAdmin }: { projects: ProjectWithS
                       key={p.id}
                       project={p}
                       last={i === filtered.length - 1}
-                      onSelect={() => router.push(`/pm/projects/${p.id}`)}
+                      onSelect={() => router.push(`/projects/${p.id}`)}
                       onRename={() => setRenamingProject(p)}
-                      canManage={isAdmin}
+                      onEditCompany={() => setEditingCompany(p)}
+                      canManage={p.myRole === "admin"}
                     />
                   ))
                 )}
@@ -184,6 +188,15 @@ export function PmProjectsScreen({ projects, isAdmin }: { projects: ProjectWithS
         onCancel={() => setRenamingProject(null)}
         onSave={handleRename}
       />
+      <RenameModal
+        open={!!editingCompany}
+        title="Edit company"
+        label="Company"
+        allowEmpty
+        initialName={editingCompany?.company ?? ""}
+        onCancel={() => setEditingCompany(null)}
+        onSave={handleCompany}
+      />
     </>
   );
 }
@@ -193,12 +206,14 @@ function ProjectTableRow({
   last,
   onSelect,
   onRename,
+  onEditCompany,
   canManage,
 }: {
   project: ProjectWithStats;
   last: boolean;
   onSelect: () => void;
   onRename: () => void;
+  onEditCompany: () => void;
   canManage: boolean;
 }) {
   const router = useRouter();
@@ -247,10 +262,14 @@ function ProjectTableRow({
         </div>
       </td>
       <td style={{ padding: "14px 16px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Avatar name={p.clientName} size={24} />
-          <span style={{ fontSize: 13, color: "#09090b", fontFamily: "var(--font-body)" }}>{p.clientName}</span>
-        </div>
+        {p.company ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Avatar name={p.company} size={24} />
+            <span style={{ fontSize: 13, color: "#09090b", fontFamily: "var(--font-body)" }}>{p.company}</span>
+          </div>
+        ) : (
+          <span style={{ fontSize: 13, color: "#a1a1aa", fontFamily: "var(--font-body)" }}>—</span>
+        )}
       </td>
       <td style={{ padding: "14px 16px", minWidth: 160 }}>
         <ProgressBar value={p.completedPageCount} max={p.pageCount} thin />
@@ -295,6 +314,17 @@ function ProjectTableRow({
           >
             <Icon name="edit" size={14} color="#71717b" />
             Rename
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenuOpen(false);
+              onEditCompany();
+            }}
+            style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", border: "none", background: "none", cursor: "pointer", borderRadius: 6, fontSize: 13, fontFamily: "var(--font-body)", color: "#09090b", textAlign: "left" }}
+          >
+            <Icon name="users" size={14} color="#71717b" />
+            Edit company
           </button>
           <button
             onClick={handleArchive}

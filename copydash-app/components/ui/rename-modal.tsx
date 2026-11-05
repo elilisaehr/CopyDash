@@ -7,12 +7,16 @@ export function RenameModal({
   open,
   title,
   initialName,
+  label = "Name",
+  allowEmpty = false,
   onCancel,
   onSave,
 }: {
   open: boolean;
   title: string;
   initialName: string;
+  label?: string;
+  allowEmpty?: boolean;
   onCancel: () => void;
   onSave: (name: string) => Promise<void> | void;
 }) {
@@ -26,7 +30,7 @@ export function RenameModal({
   }, [open, initialName]);
 
   const submit = async () => {
-    if (!name.trim() || saving) return;
+    if ((!allowEmpty && !name.trim()) || saving) return;
     setSaving(true);
     await onSave(name.trim());
     setSaving(false);
@@ -36,13 +40,13 @@ export function RenameModal({
     <Modal open={open} onClose={onCancel} title={title} width={420}>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <FieldInput
-          label="Name"
+          label={label}
           value={name}
           onChange={setName}
-          placeholder="Name"
+          placeholder={label}
         />
         <div style={{ display: "flex", gap: 10 }}>
-          <Btn variant="primary" fullWidth onClick={submit} disabled={!name.trim() || saving}>
+          <Btn variant="primary" fullWidth onClick={submit} disabled={(!allowEmpty && !name.trim()) || saving}>
             {saving ? "Saving…" : "Save"}
           </Btn>
           <Btn variant="outline" onClick={onCancel}>

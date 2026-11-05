@@ -5,16 +5,8 @@ import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 import { Avatar, Btn, Card, KPICard, PageHeader, StatusBadge } from "@/components/ui/primitives";
 import { timeAgo } from "@/lib/format";
-import type { ActivityLogEntry, PageStatus, Project } from "@/lib/supabase/types";
-
-/** `status` is derived from the pages (lib/review.ts projectStatus), not the legacy column. */
-export interface ProjectWithStats extends Omit<Project, "status"> {
-  status: PageStatus;
-  clientName: string;
-  pageCount: number;
-  completedPageCount: number;
-  toReviewCount: number;
-}
+import type { ProjectWithStats } from "@/lib/projects";
+import type { ActivityLogEntry } from "@/lib/supabase/types";
 
 type Greeting = "morning" | "afternoon" | "evening";
 
@@ -29,7 +21,7 @@ function activityVisual(entry: ActivityLogEntry): { icon: string; color: string;
   return { icon: "zap", color: "#71717b", bg: "#f4f4f5" };
 }
 
-export function PmOverviewScreen({
+export function OverviewScreen({
   firstName,
   greeting,
   projects,
@@ -40,7 +32,7 @@ export function PmOverviewScreen({
   greeting: Greeting;
   projects: ProjectWithStats[];
   activity: ActivityLogEntry[];
-  /** Editors can't create projects or manage clients. */
+  /** Editors can't create projects. */
   isAdmin: boolean;
 }) {
   const router = useRouter();
@@ -48,7 +40,7 @@ export function PmOverviewScreen({
   const totalPages = projects.reduce((s, p) => s + p.pageCount, 0);
   const completedPages = projects.reduce((s, p) => s + p.completedPageCount, 0);
   const recentProjects = [...projects].sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1)).slice(0, 3);
-  const needsAttention = projects.filter((p) => p.toReviewCount > 0);
+  const needsAttention = projects.filter((p) => p.toReviewCount > 0 || p.yourTurnCount > 0);
   const activeCount = projects.filter((p) => p.status !== "Completed").length;
   const completedCount = projects.filter((p) => p.status === "Completed").length;
   const toReview = projects.reduce((s, p) => s + p.toReviewCount, 0);
@@ -60,7 +52,7 @@ export function PmOverviewScreen({
         subtitle="Here's what's happening across your projects today"
         actions={
           isAdmin && (
-            <Btn variant="primary" icon="plus" onClick={() => router.push("/pm/projects/new")}>
+            <Btn variant="primary" icon="plus" onClick={() => router.push("/projects/new")}>
               New Project
             </Btn>
           )
@@ -87,7 +79,7 @@ export function PmOverviewScreen({
           <div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
               <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "#09090b", fontFamily: "var(--font-sans)" }}>Recent Projects</h3>
-              <Btn variant="ghost" size="sm" icon="arrow-right" iconPos="right" onClick={() => router.push("/pm/projects")}>
+              <Btn variant="ghost" size="sm" icon="arrow-right" iconPos="right" onClick={() => router.push("/projects")}>
                 View all
               </Btn>
             </div>
@@ -100,7 +92,7 @@ export function PmOverviewScreen({
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {recentProjects.map((p) => (
-                  <RecentProjectRow key={p.id} project={p} onClick={() => router.push(`/pm/projects/${p.id}`)} />
+                  <RecentProjectRow key={p.id} project={p} onClick={() => router.push(`/projects/${p.id}`)} />
                 ))}
               </div>
             )}
@@ -115,21 +107,22 @@ export function PmOverviewScreen({
                 <div style={{ padding: 24, background: "#f0fdf4", borderRadius: 12, border: "1px solid #bbf7d0", textAlign: "center" }}>
                   <Icon name="check-circle" size={20} color="#15803d" style={{ margin: "0 auto 8px" }} />
                   <div style={{ fontSize: 13, color: "#15803d", fontWeight: 500, fontFamily: "var(--font-sans)" }}>All caught up!</div>
-                  <div style={{ fontSize: 12, color: "#4ade80", marginTop: 4, fontFamily: "var(--font-body)" }}>No pages waiting for your review</div>
+                  <div style={{ fontSize: 12, color: "#4ade80", marginTop: 4, fontFamily: "var(--font-body)" }}>No pages waiting for you</div>
                 </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {needsAttention.map((p) => (
                     <div
                       key={p.id}
-                      onClick={() => router.push(`/pm/projects/${p.id}`)}
+                      onClick={() => router.push(`/projects/${p.id}`)}
                       style={{ padding: "12px 14px", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 10, cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}
                     >
                       <Icon name="clock" size={14} color="#f59e0b" />
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 13, fontWeight: 500, color: "#09090b", fontFamily: "var(--font-sans)" }}>{p.name}</div>
                         <div style={{ fontSize: 11, color: "#92400e", fontFamily: "var(--font-body)", marginTop: 2 }}>
-                          {p.clientName} · {p.toReviewCount} {p.toReviewCount === 1 ? "page" : "pages"} to review
+                          {p.company && `${p.company} · `}
+                          {p.toReviewCount > 0 ? `${p.toReviewCount} ${p.toReviewCount === 1 ? "page" : "pages"} to review` : `Your turn on ${p.yourTurnCount} ${p.yourTurnCount === 1 ? "page" : "pages"}`}
                         </div>
                       </div>
                       <Icon name="chevron-right" size={13} color="#f59e0b" />
@@ -194,9 +187,8 @@ export function PmOverviewScreen({
             <div>
               <h3 style={{ margin: "0 0 14px", fontSize: 16, fontWeight: 600, color: "#09090b", fontFamily: "var(--font-sans)" }}>Quick Actions</h3>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {isAdmin && <QuickAction icon="circle-plus" color="#7f22fe" bg="#f5f3ff" label="Create new project" onClick={() => router.push("/pm/projects/new")} />}
-                {isAdmin && <QuickAction icon="users" color="#0369a1" bg="#eff6ff" label="Manage clients" onClick={() => router.push("/pm/clients")} />}
-                <QuickAction icon="folder-open" color="#15803d" bg="#f0fdf4" label="View all projects" onClick={() => router.push("/pm/projects")} />
+                {isAdmin && <QuickAction icon="circle-plus" color="#7f22fe" bg="#f5f3ff" label="Create new project" onClick={() => router.push("/projects/new")} />}
+                <QuickAction icon="folder-open" color="#15803d" bg="#f0fdf4" label="View all projects" onClick={() => router.push("/projects")} />
               </div>
             </div>
           </div>
@@ -254,10 +246,12 @@ function RecentProjectRow({ project, onClick }: { project: ProjectWithStats; onC
             </div>
             <span style={{ fontSize: 11, color: "#a1a1aa", fontFamily: "var(--font-sans)", flexShrink: 0 }}>{pct}%</span>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-            <Avatar name={project.clientName} size={18} />
-            <span style={{ fontSize: 12, color: "#71717b", fontFamily: "var(--font-body)" }}>{project.clientName}</span>
-          </div>
+          {project.company && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+              <Avatar name={project.company} size={18} />
+              <span style={{ fontSize: 12, color: "#71717b", fontFamily: "var(--font-body)" }}>{project.company}</span>
+            </div>
+          )}
         </div>
       </div>
     </div>

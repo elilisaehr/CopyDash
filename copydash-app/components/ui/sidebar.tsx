@@ -9,24 +9,17 @@ import { createClient } from "@/lib/supabase/client";
 
 type NavItem = { id: string; label: string; icon: string; href: string };
 
-const PM_NAV: NavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: "layout-dashboard", href: "/pm" },
-  { id: "projects", label: "Projects", icon: "folder-open", href: "/pm/projects" },
-  { id: "clients", label: "Clients", icon: "users", href: "/pm/clients" },
-];
-
-const CLIENT_NAV: NavItem[] = [
-  { id: "client-home", label: "My Work", icon: "folder-open", href: "/client" },
+const NAV: NavItem[] = [
+  { id: "dashboard", label: "Dashboard", icon: "layout-dashboard", href: "/dashboard" },
+  { id: "projects", label: "Projects", icon: "folder-open", href: "/projects" },
 ];
 
 export function Sidebar({
   user,
-  role,
   workspace,
 }: {
-  user: { name: string; email: string; project?: string; avatar_url?: string | null };
-  role: "pm" | "client";
-  /** Agency side only: the workspace shown under the logo, and the member's role in it. */
+  user: { name: string; email: string; avatar_url?: string | null };
+  /** The workspace shown under the logo, and the member's role in it. Contributors have none. */
   workspace?: { name: string; role: "admin" | "editor"; planLabel: string };
 }) {
   const pathname = usePathname();
@@ -55,16 +48,11 @@ export function Sidebar({
     }
   };
 
-  // Managing client companies is admin-only.
-  const nav = role === "client" ? CLIENT_NAV : workspace?.role === "editor" ? PM_NAV.filter((n) => n.id !== "clients") : PM_NAV;
   const width = collapsed ? 66 : 255;
-  const settingsHref = role === "client" ? "/client/settings" : "/pm/settings";
-  const helpHref = role === "client" ? "/client/help" : "/pm/help";
+  const settingsHref = "/settings";
+  const helpHref = "/help";
 
-  const isActive = (href: string) => {
-    if (href === "/pm" || href === "/client") return pathname === href;
-    return pathname.startsWith(href);
-  };
+  const isActive = (href: string) => pathname.startsWith(href);
 
   return (
     <div
@@ -115,7 +103,6 @@ export function Sidebar({
             {!collapsed && (
               <div>
                 <div style={{ fontSize: 14, fontWeight: 700, color: "#09090b", fontFamily: "var(--font-sans)" }}>CopyDash</div>
-                {role === "client" && user.project && <div style={{ fontSize: 11, color: "#71717b", fontFamily: "var(--font-body)", marginTop: 1 }}>{user.project}</div>}
                 {workspace && (
                   <div style={{ fontSize: 11, color: "#71717b", fontFamily: "var(--font-body)", marginTop: 1, maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={`${workspace.name} · ${workspace.planLabel}`}>
                     {workspace.name} · {workspace.role === "admin" ? workspace.planLabel : "Editor"}
@@ -126,7 +113,7 @@ export function Sidebar({
           </div>
         </div>
         <div style={{ padding: "8px 8px" }}>
-          {nav.map((item) => (
+          {NAV.map((item) => (
             <SidebarNavItem key={item.id} item={item} active={isActive(item.href)} collapsed={collapsed} />
           ))}
         </div>

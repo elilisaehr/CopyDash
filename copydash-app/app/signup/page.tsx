@@ -10,7 +10,7 @@ import { AuthVisual } from "@/components/ui/auth-visual";
 
 export default function SignupPage() {
   const router = useRouter();
-  // Sign-up is for agencies only: editors and clients join through an invitation link (/invite/[token]).
+  // Signing up starts a new workspace. Everyone else joins through an invitation link (/invite/[token]).
   const [form, setForm] = React.useState({ name: "", email: "", password: "", role: "pm" as const });
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -40,7 +40,7 @@ export default function SignupPage() {
     }
     // Auto-confirmed: create the profile row now and continue in.
     await supabase.from("profiles").upsert({ id: data.user!.id, role: form.role, name: form.name, email: form.email });
-    router.push("/pm");
+    router.push("/dashboard");
     router.refresh();
   };
 
@@ -84,10 +84,10 @@ export default function SignupPage() {
             </div>
           ) : (
             <>
-              <h2 style={{ margin: "0 0 8px", fontSize: 28, fontWeight: 700, color: "#09090b", fontFamily: "var(--font-sans)" }}>Create your agency account</h2>
+              <h2 style={{ margin: "0 0 8px", fontSize: 28, fontWeight: 700, color: "#09090b", fontFamily: "var(--font-sans)" }}>Create your account</h2>
               <p style={{ margin: "0 0 12px", fontSize: 14, color: "#71717b" }}>Get started with CopyDash for free</p>
               <p style={{ margin: "0 0 24px", fontSize: 13, color: "#71717b", lineHeight: 1.6, padding: "10px 12px", background: "#fafafa", border: "1px solid #f4f4f5", borderRadius: 8 }}>
-                Invited by an agency? Open the link in your invitation email instead — it sets up your access.
+                Invited to a project? Open the link in your invitation email instead — it sets up your access.
               </p>
               <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                 <FieldInput label="Full name" value={form.name} onChange={(v) => update("name", v)} placeholder="Alex Martin" />

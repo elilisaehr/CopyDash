@@ -7,21 +7,17 @@ import { Btn, Card, PageHeader, StatusBadge } from "@/components/ui/primitives";
 import { formatDate } from "@/lib/format";
 import type { Page, Project } from "@/lib/supabase/types";
 
-export function ClientDashboardScreen({
+export function ContributorDashboardScreen({
   userName,
-  project,
-  pages,
+  projects,
 }: {
   userName: string;
-  project: Project | null;
-  pages: Page[];
+  projects: (Project & { pages: Page[] })[];
 }) {
   const firstName = userName?.split(" ")[0] || "there";
-  const waiting = pages.filter((p) => p.status === "In Progress").length;
-  const completed = pages.filter((p) => p.status === "Completed").length;
-  const pct = pages.length ? Math.round((completed / pages.length) * 100) : 0;
+  const waiting = projects.reduce((n, p) => n + p.pages.filter((pg) => pg.status === "In Progress").length, 0);
 
-  if (!project) {
+  if (projects.length === 0) {
     return (
       <>
         <PageHeader title={`Welcome, ${firstName}`} subtitle="Your workspace is almost ready" />
@@ -45,7 +41,7 @@ export function ClientDashboardScreen({
               No project yet
             </div>
             <p style={{ margin: "0 auto", maxWidth: 360, fontSize: 14, color: "#71717b", fontFamily: "var(--font-body)" }}>
-              Your project manager hasn&rsquo;t set up your project yet. Check back soon.
+              You haven&rsquo;t been added to a project yet. Check back soon.
             </p>
           </Card>
         </div>
@@ -58,56 +54,9 @@ export function ClientDashboardScreen({
       <PageHeader title={`Welcome, ${firstName}`} subtitle={waiting ? `It's your turn on ${waiting} ${waiting === 1 ? "page" : "pages"}` : "Nothing waiting for you right now"} />
 
       <div style={{ padding: "24px 48px 48px", flex: 1, overflowY: "auto" }}>
-        {/* Project progress card */}
-        <Card style={{ marginBottom: 32, background: "linear-gradient(135deg, #7f22fe 0%, #a684ff 100%)", border: "none" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
-            <div>
-              <div
-                style={{
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: "rgba(255,255,255,0.7)",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.06em",
-                  fontFamily: "var(--font-sans)",
-                  marginBottom: 6,
-                }}
-              >
-                Your Project
-              </div>
-              <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: "#fff", fontFamily: "var(--font-sans)" }}>{project.name}</h2>
-              <p style={{ margin: "4px 0 0", fontSize: 13, color: "rgba(255,255,255,0.75)", fontFamily: "var(--font-body)" }}>
-                {completed} of {pages.length} pages completed
-              </p>
-            </div>
-            <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 40, fontWeight: 700, color: "#fff", fontFamily: "var(--font-sans)", lineHeight: 1 }}>{pct}%</div>
-              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.7)", fontFamily: "var(--font-body)", marginTop: 4 }}>Complete</div>
-            </div>
-          </div>
-          <div style={{ marginTop: 20, height: 6, borderRadius: 3, background: "rgba(255,255,255,0.25)", overflow: "hidden" }}>
-            <div style={{ height: "100%", width: `${pct}%`, background: "#fff", borderRadius: 3, transition: "width 0.5s ease" }} />
-          </div>
-        </Card>
-
-        {/* Pages */}
-        <div style={{ marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "#09090b", fontFamily: "var(--font-sans)" }}>Your Pages</h3>
-          <span style={{ fontSize: 12, color: "#a1a1aa", fontFamily: "var(--font-body)" }}>{pages.length} total</span>
-        </div>
-
-        {pages.length === 0 ? (
-          <Card style={{ textAlign: "center", padding: "40px 24px" }}>
-            <p style={{ margin: 0, fontSize: 14, color: "#71717b", fontFamily: "var(--font-body)" }}>No pages have been added to this project yet.</p>
-          </Card>
-        ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
-            {/* Pages where it's the client's turn come first (sort is stable). */}
-            {[...pages].sort((a, b) => Number(b.status === "In Progress") - Number(a.status === "In Progress")).map((pg) => (
-              <ClientPageCard key={pg.id} page={pg} />
-            ))}
-          </div>
-        )}
+        {projects.map((project) => (
+          <ProjectSection key={project.id} project={project} />
+        ))}
 
         {/* Help banner */}
         <div
@@ -144,7 +93,7 @@ export function ClientDashboardScreen({
               <div style={{ fontSize: 12, color: "#71717b", fontFamily: "var(--font-body)" }}>Open a page marked &ldquo;Your turn&rdquo; to edit it, then submit it for review. Changes are saved automatically.</div>
             </div>
           </div>
-          <Link href="/client/help" style={{ textDecoration: "none" }}>
+          <Link href="/help" style={{ textDecoration: "none" }}>
             <Btn variant="outline" size="sm">
               Get Help
             </Btn>
@@ -155,15 +104,76 @@ export function ClientDashboardScreen({
   );
 }
 
+function ProjectSection({ project }: { project: Project & { pages: Page[] } }) {
+  const pages = project.pages;
+  const completed = pages.filter((p) => p.status === "Completed").length;
+  const pct = pages.length ? Math.round((completed / pages.length) * 100) : 0;
+
+  return (
+    <div style={{ marginBottom: 40 }}>
+        {/* Project progress card */}
+            <Card style={{ marginBottom: 32, background: "linear-gradient(135deg, #7f22fe 0%, #a684ff 100%)", border: "none" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
+                <div>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: "rgba(255,255,255,0.7)",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.06em",
+                      fontFamily: "var(--font-sans)",
+                      marginBottom: 6,
+                    }}
+                  >
+                    {project.company || "Your Project"}
+                  </div>
+                  <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: "#fff", fontFamily: "var(--font-sans)" }}>{project.name}</h2>
+                  <p style={{ margin: "4px 0 0", fontSize: 13, color: "rgba(255,255,255,0.75)", fontFamily: "var(--font-body)" }}>
+                    {completed} of {pages.length} pages completed
+                  </p>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: 40, fontWeight: 700, color: "#fff", fontFamily: "var(--font-sans)", lineHeight: 1 }}>{pct}%</div>
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.7)", fontFamily: "var(--font-body)", marginTop: 4 }}>Complete</div>
+                </div>
+              </div>
+              <div style={{ marginTop: 20, height: 6, borderRadius: 3, background: "rgba(255,255,255,0.25)", overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${pct}%`, background: "#fff", borderRadius: 3, transition: "width 0.5s ease" }} />
+              </div>
+            </Card>
+
+            {/* Pages */}
+            <div style={{ marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "#09090b", fontFamily: "var(--font-sans)" }}>Your Pages</h3>
+              <span style={{ fontSize: 12, color: "#a1a1aa", fontFamily: "var(--font-body)" }}>{pages.length} total</span>
+            </div>
+
+            {pages.length === 0 ? (
+              <Card style={{ textAlign: "center", padding: "40px 24px" }}>
+                <p style={{ margin: 0, fontSize: 14, color: "#71717b", fontFamily: "var(--font-body)" }}>No pages have been added to this project yet.</p>
+              </Card>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
+                {/* Pages where it's their turn come first (sort is stable). */}
+                {[...pages].sort((a, b) => Number(b.status === "In Progress") - Number(a.status === "In Progress")).map((pg) => (
+                  <ContributorPageCard key={pg.id} page={pg} />
+                ))}
+              </div>
+            )}
+    </div>
+  );
+}
+
 // `yourTurn` pages are the ones to act on; the others still open, read-only.
 const STATUS_ACTION: Record<string, { label: string; color: string; bg: string; yourTurn: boolean }> = {
-  Draft: { label: "Being prepared by your agency", color: "#71717b", bg: "#f4f4f5", yourTurn: false },
+  Draft: { label: "Being prepared", color: "#71717b", bg: "#f4f4f5", yourTurn: false },
   "In Progress": { label: "Your turn — edit this page", color: "#f59e0b", bg: "#fef9c3", yourTurn: true },
-  "Pending Review": { label: "Your agency is reviewing it", color: "#1d4ed8", bg: "#eff6ff", yourTurn: false },
+  "Pending Review": { label: "Being reviewed", color: "#1d4ed8", bg: "#eff6ff", yourTurn: false },
   Completed: { label: "Completed", color: "#15803d", bg: "#dcfce7", yourTurn: false },
 };
 
-function ClientPageCard({ page }: { page: Page }) {
+function ContributorPageCard({ page }: { page: Page }) {
   const [hov, setHov] = React.useState(false);
   const info = STATUS_ACTION[page.status] || STATUS_ACTION.Draft;
   const isEditable = info.yourTurn;
@@ -212,7 +222,7 @@ function ClientPageCard({ page }: { page: Page }) {
   );
 
   return (
-    <Link href={`/client/pages/${page.id}`} style={{ textDecoration: "none", display: "block" }}>
+    <Link href={`/projects/${page.project_id}/pages/${page.id}`} style={{ textDecoration: "none", display: "block" }}>
       {content}
     </Link>
   );

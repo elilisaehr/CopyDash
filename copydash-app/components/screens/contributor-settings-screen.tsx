@@ -33,7 +33,7 @@ const TABS = [
 
 type TabId = (typeof TABS)[number]["id"];
 
-export type ClientNotifPrefs = {
+export type ContributorNotifPrefs = {
   statusChanges: boolean;
   pageReady: boolean;
   commentReply: boolean;
@@ -42,7 +42,7 @@ export type ClientNotifPrefs = {
   weekly: boolean;
 };
 
-export const CLIENT_NOTIF_DEFAULTS: ClientNotifPrefs = {
+export const CONTRIBUTOR_NOTIF_DEFAULTS: ContributorNotifPrefs = {
   statusChanges: true,
   pageReady: true,
   commentReply: true,
@@ -84,13 +84,13 @@ function TabNavButton({ id, label, icon, active, onClick }: { id: string; label:
   );
 }
 
-export function ClientSettingsScreen({
+export function ContributorSettingsScreen({
   profile,
   notifPrefs,
   project,
 }: {
   profile: Profile;
-  notifPrefs: ClientNotifPrefs;
+  notifPrefs: ContributorNotifPrefs;
   project: { name: string } | null;
 }) {
   const [tab, setTab] = React.useState<TabId>("account");
@@ -206,19 +206,19 @@ function AccountTab({ profile, project }: { profile: Profile; project: { name: s
 }
 
 // ── Notifications ────────────────────────────────────────────────
-const NOTIF_ITEMS: { key: keyof ClientNotifPrefs; label: string; desc: string }[] = [
+const NOTIF_ITEMS: { key: keyof ContributorNotifPrefs; label: string; desc: string }[] = [
   { key: "statusChanges", label: "Page status changes", desc: "When someone on your project changes the status of a page (email)" },
-  { key: "pageReady", label: "Page ready for you", desc: "When your agency assigns a page for you to fill in" },
+  { key: "pageReady", label: "Page ready for you", desc: "When a page is ready for you to fill in" },
   { key: "commentReply", label: "Comment replies", desc: "When someone replies to a comment on your content" },
   { key: "reviewResult", label: "Review results", desc: "When your submitted content is approved or needs changes" },
   { key: "deadline", label: "Deadline reminders", desc: "Reminders before a page is due" },
   { key: "weekly", label: "Weekly summary", desc: "A weekly recap of what still needs your input" },
 ];
 
-function NotificationsTab({ userId, initial }: { userId: string; initial: ClientNotifPrefs }) {
-  const [notifs, setNotifs] = React.useState<ClientNotifPrefs>(initial);
+function NotificationsTab({ userId, initial }: { userId: string; initial: ContributorNotifPrefs }) {
+  const [notifs, setNotifs] = React.useState<ContributorNotifPrefs>(initial);
 
-  const toggleNotif = async (key: keyof ClientNotifPrefs) => {
+  const toggleNotif = async (key: keyof ContributorNotifPrefs) => {
     const updated = { ...notifs, [key]: !notifs[key] };
     setNotifs(updated);
     const supabase = createClient();

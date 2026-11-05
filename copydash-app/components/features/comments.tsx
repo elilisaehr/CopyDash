@@ -228,7 +228,7 @@ function CommentBubble({ comment: c, user, onResolve, onDelete }: { comment: Com
   const [hov, setHov] = React.useState(false);
   const isMe = c.author_id === user.id;
   const roleColor = c.role === "pm" ? "#7f22fe" : "#0369a1";
-  const roleLabel = c.role === "pm" ? "PM" : "Client";
+  const roleLabel = c.role === "pm" ? "Team" : "Contributor";
 
   return (
     <div onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)} style={{ opacity: c.resolved ? 0.5 : 1 }}>

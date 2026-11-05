@@ -12,7 +12,6 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
-  const [role, setRole] = React.useState<"pm" | "client">("pm");
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -21,14 +20,13 @@ export default function LoginPage() {
     setLoading(true);
     setError(null);
     const supabase = createClient();
-    const { data, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
     if (signInError) {
       setError(signInError.message);
       return;
     }
-    const actualRole = data.user?.user_metadata?.role === "client" ? "client" : "pm";
-    router.push(actualRole === "client" ? "/client" : "/pm");
+    router.push("/dashboard");
     router.refresh();
   };
 
@@ -70,37 +68,9 @@ export default function LoginPage() {
             <p style={{ margin: 0, fontSize: 14, color: "#71717b" }}>Sign in to your CopyDash account</p>
           </div>
 
-          <div style={{ display: "flex", background: "#f4f4f5", borderRadius: 10, padding: 4, marginBottom: 28, gap: 4 }}>
-            {[
-              { id: "pm" as const, label: "Project Manager" },
-              { id: "client" as const, label: "Client" },
-            ].map((r) => (
-              <button
-                key={r.id}
-                type="button"
-                onClick={() => setRole(r.id)}
-                style={{
-                  flex: 1,
-                  padding: "8px 12px",
-                  borderRadius: 8,
-                  border: "none",
-                  cursor: "pointer",
-                  fontSize: 13,
-                  fontWeight: 500,
-                  fontFamily: "var(--font-sans)",
-                  background: role === r.id ? "#fff" : "transparent",
-                  color: role === r.id ? "#09090b" : "#71717b",
-                  boxShadow: role === r.id ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
-                  transition: "all 0.15s",
-                }}
-              >
-                {r.label}
-              </button>
-            ))}
-          </div>
 
           <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <FieldInput label="Email" value={email} onChange={setEmail} placeholder={role === "pm" ? "alex@agency.co" : "sarah@acmecorp.com"} type="email" />
+            <FieldInput label="Email" value={email} onChange={setEmail} placeholder="you@company.com" type="email" />
             <FieldInput label="Password" value={password} onChange={setPassword} placeholder="••••••••" type="password" />
 
             {error && (

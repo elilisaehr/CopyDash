@@ -1,21 +1,18 @@
 "use server";
 
-// Admin-side invitation actions (Settings → Team, Clients). Invitation rows
+// Workspace-wide invitation actions (Settings → Team). A project's People tab uses lib/actions/people.ts.
+// Invitation rows
 // are written with the admin's own session, so the "invitations: admins
 // manage" RLS policy is the real gate; requireAdmin only gives a clean error.
 // Accepting an invitation lives in app/invite/[token]/actions.ts.
 
 import { refresh } from "next/cache";
-import { siteUrl } from "@/lib/site-url";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { getProfile, getUser } from "@/lib/auth";
 import { getWorkspaceContext } from "@/lib/workspace";
-import { invitationEmail, sendEmail } from "@/lib/email";
+import { deliverInvitation, type InviteResult } from "@/lib/invite-delivery";
+import { planLimitError } from "@/lib/plan";
 import type { Invitation, InvitationRole } from "@/lib/supabase/types";
-
-export type InviteResult =
-  | { ok: true; link: string; emailSent: boolean; emailError?: string }
-  | { ok: false; error: string };
 
 const EMAIL_RE = /^\S+@\S+\.\S+$/;
 
@@ -28,17 +25,9 @@ async function adminContext() {
   return { supabase, user, ctx };
 }
 
-async function inviteLink(token: string) {
-  return `${await siteUrl()}/invite/${token}`;
-}
-
 async function deliver(inv: Pick<Invitation, "email" | "role" | "token">, workspaceName: string, send = true): Promise<InviteResult> {
-  const link = await inviteLink(inv.token);
-  if (!send) return { ok: true, link, emailSent: false };
   const profile = await getProfile();
-  const { subject, html, text } = invitationEmail({ inviterName: profile?.name || "Your agency", workspaceName, role: inv.role, url: link });
-  const sent = await sendEmail({ to: inv.email, subject, html, text });
-  return sent.ok ? { ok: true, link, emailSent: true } : { ok: true, link, emailSent: false, emailError: sent.error };
+  return deliverInvitation(inv, { workspaceName, inviterName: profile?.name || "Your team", send });
 }
 
 /** Creates (or refreshes) a pending invitation and emails it (unless `send` is false — link only). */
@@ -87,7 +76,7 @@ export async function createInvitation(input: { email: string; role: InvitationR
         .insert({ workspace_id: ctx.workspace.id, email, role: input.role, project_ids: projectIds, invited_by: user.id })
         .select("*")
         .single();
-  if (error || !inv) return { ok: false, error: error?.message || "Could not create the invitation." };
+  if (error || !inv) return { ok: false, error: planLimitError(error) ?? error?.message ?? "Could not create the invitation." };
 
   const result = await deliver(inv as Invitation, ctx.workspace.name, input.send ?? true);
   refresh();

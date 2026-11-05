@@ -30,14 +30,13 @@ export const getWorkspaceContext = cache(async (supabase: SupabaseClient, userId
   return {
     workspace,
     role: membership.role as WorkspaceRole,
-    limits: limits ?? { plan: workspace.plan, max_projects: null, max_pages_per_project: null, max_members: null },
+    limits: limits ?? { plan: workspace.plan, max_projects: null, max_pages_per_project: null, max_members: null, max_contributors: null },
   };
 });
 
-/** For admin-only routes: editors are sent back to the dashboard. */
+/** For admin-only routes: everyone else is sent back to the dashboard. */
 export async function requireAdmin(supabase: SupabaseClient, userId: string): Promise<WorkspaceContext> {
   const ctx = await getWorkspaceContext(supabase, userId);
-  if (!ctx) redirect("/onboarding");
-  if (ctx.role !== "admin") redirect("/pm");
+  if (!ctx || ctx.role !== "admin") redirect("/dashboard");
   return ctx;
 }

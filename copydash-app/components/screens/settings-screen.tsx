@@ -7,7 +7,9 @@ import { Btn, Card, FieldInput, SelectInput, Avatar, PageHeader, Toggle } from "
 import { planLimitError } from "@/lib/plan";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate } from "@/lib/format";
-import { createInvitation, removeMember, resendInvitation, revokeInvitation, type InviteResult } from "@/lib/actions/invitations";
+import { createInvitation, removeMember, resendInvitation, revokeInvitation } from "@/lib/actions/invitations";
+import type { InviteResult } from "@/lib/invite-delivery";
+import { ROLE_HELP, ROLE_LABEL } from "@/lib/roles";
 import type { Profile, BrandingSettings, FigmaConnection, Invitation, InvitationRole, Project, Page, WorkspaceRole } from "@/lib/supabase/types";
 
 // SectionTitle isn't in the shared primitives — ported here as a tiny local helper.
@@ -43,7 +45,7 @@ type TabId = (typeof TABS)[number]["id"];
 // Workspace-wide settings are admin-only.
 const ADMIN_TABS: TabId[] = ["team", "branding", "archive"];
 
-export type PmNotifPrefs = {
+export type TeamNotifPrefs = {
   statusChanges: boolean;
   clientUpdates: boolean;
   comments: boolean;
@@ -51,7 +53,7 @@ export type PmNotifPrefs = {
   weeklyReport: boolean;
 };
 
-export const PM_NOTIF_DEFAULTS: PmNotifPrefs = {
+export const TEAM_NOTIF_DEFAULTS: TeamNotifPrefs = {
   statusChanges: true,
   clientUpdates: true,
   comments: true,
@@ -90,7 +92,7 @@ function TabNavButton({ id, label, icon, active, onClick }: { id: string; label:
   );
 }
 
-export function PmSettingsScreen({
+export function SettingsScreen({
   profile,
   notifPrefs,
   team,
@@ -101,7 +103,7 @@ export function PmSettingsScreen({
   isAdmin,
 }: {
   profile: Profile;
-  notifPrefs: PmNotifPrefs;
+  notifPrefs: TeamNotifPrefs;
   team: TeamData;
   branding: BrandingSettings | null;
   figmaConnection: FigmaConnection | null;
@@ -186,7 +188,7 @@ function AccountTab({ profile }: { profile: Profile }) {
             <FieldInput label="Full Name" value={form.name} onChange={(v) => setForm((f) => ({ ...f, name: v }))} placeholder="Your name" />
             <FieldInput label="Email" value={form.email} onChange={(v) => setForm((f) => ({ ...f, email: v }))} placeholder="you@company.com" type="email" />
           </div>
-          <FieldInput label="Company / Agency" value={form.company} onChange={(v) => setForm((f) => ({ ...f, company: v }))} placeholder="Agency Studio" />
+          <FieldInput label="Company" value={form.company} onChange={(v) => setForm((f) => ({ ...f, company: v }))} placeholder="Your company" />
         </div>
       </Card>
 
@@ -226,18 +228,18 @@ function AccountTab({ profile }: { profile: Profile }) {
 }
 
 // ── Notifications ────────────────────────────────────────────────
-const NOTIF_ITEMS: { key: keyof PmNotifPrefs; label: string; desc: string }[] = [
+const NOTIF_ITEMS: { key: keyof TeamNotifPrefs; label: string; desc: string }[] = [
   { key: "statusChanges", label: "Page status changes", desc: "When someone on a project changes the status of a page (email)" },
-  { key: "clientUpdates", label: "Client content updates", desc: "When a client fills in or edits a field" },
+  { key: "clientUpdates", label: "Content updates", desc: "When a contributor fills in or edits a field" },
   { key: "comments", label: "New comments", desc: "When someone adds a comment to a field" },
   { key: "projectComplete", label: "Project completed", desc: "When all pages reach 100% completion" },
   { key: "weeklyReport", label: "Weekly summary report", desc: "A digest of all project activity this week" },
 ];
 
-function NotificationsTab({ userId, initial }: { userId: string; initial: PmNotifPrefs }) {
-  const [notifs, setNotifs] = React.useState<PmNotifPrefs>(initial);
+function NotificationsTab({ userId, initial }: { userId: string; initial: TeamNotifPrefs }) {
+  const [notifs, setNotifs] = React.useState<TeamNotifPrefs>(initial);
 
-  const handleToggle = async (key: keyof PmNotifPrefs) => {
+  const handleToggle = async (key: keyof TeamNotifPrefs) => {
     const updated = { ...notifs, [key]: !notifs[key] };
     setNotifs(updated);
     const supabase = createClient();
@@ -281,20 +283,13 @@ export type TeamData = {
   projects: { id: string; name: string }[];
 };
 
-const ROLE_LABEL: Record<InvitationRole, string> = { admin: "Admin", editor: "Editor", client: "Client" };
-const ROLE_HELP: Record<InvitationRole, string> = {
-  editor: "Agency teammate — adds, removes and edits pages in the projects you pick.",
-  admin: "Manages everything: projects, clients, team and settings.",
-  client: "Edits the copy on the pages of the projects you pick. Creates nothing.",
-};
-
-function RolePill({ role }: { role: InvitationRole }) {
+export function RolePill({ role }: { role: InvitationRole }) {
   return (
     <span style={{ fontSize: 12, color: "#71717b", fontFamily: "var(--font-sans)", background: "#f4f4f5", padding: "3px 8px", borderRadius: 6, flexShrink: 0 }}>{ROLE_LABEL[role]}</span>
   );
 }
 
-function InviteOutcome({ result, onDismiss }: { result: InviteResult; onDismiss: () => void }) {
+export function InviteOutcome({ result, onDismiss }: { result: InviteResult; onDismiss: () => void }) {
   const [copied, setCopied] = React.useState(false);
   if (!result.ok) {
     return (
@@ -517,7 +512,7 @@ const BRAND_COLORS = ["#7f22fe", "#0369a1", "#15803d", "#b45309", "#be123c", "#0
 
 function BrandingTab({ pmId, initial }: { pmId: string; initial: BrandingSettings | null }) {
   const [form, setForm] = React.useState({
-    agency_name: initial?.agency_name || "Agency Studio",
+    agency_name: initial?.agency_name || "",
     brand_color: initial?.brand_color || "#7f22fe",
     welcome_message: initial?.welcome_message || "Welcome! Please fill in the content for your website pages below.",
   });
@@ -535,11 +530,11 @@ function BrandingTab({ pmId, initial }: { pmId: string; initial: BrandingSetting
 
   return (
     <div>
-      <SectionTitle>Client Portal Branding</SectionTitle>
+      <SectionTitle>Branding</SectionTitle>
       <Card style={{ marginBottom: 20 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 500, color: "#09090b", fontFamily: "var(--font-sans)", display: "block", marginBottom: 8 }}>Agency Name</label>
+            <label style={{ fontSize: 12, fontWeight: 500, color: "#09090b", fontFamily: "var(--font-sans)", display: "block", marginBottom: 8 }}>Company Name</label>
             <input
               value={form.agency_name}
               onChange={(e) => setForm((f) => ({ ...f, agency_name: e.target.value }))}
