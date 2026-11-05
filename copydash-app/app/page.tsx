@@ -3,8 +3,6 @@ import { getUser } from "@/lib/auth";
 
 export default async function RootPage() {
   const user = await getUser();
-
   if (!user) redirect("/login");
-  const role = user.user_metadata?.role === "client" ? "client" : "pm";
-  redirect(role === "client" ? "/client" : "/pm");
+  redirect("/dashboard");
 }

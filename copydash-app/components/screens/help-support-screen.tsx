@@ -55,19 +55,19 @@ function FAQItem({ q, a, open, onToggle }: { q: string; a: string; open: boolean
 const FAQS = [
   {
     q: "How do I edit my page content?",
-    a: 'From "My Work", open a page marked "Your turn". Click any text on the design (or in the list on the right) and type. Your changes save automatically as you go.',
+    a: 'From your Dashboard, open a page marked "Your turn". Click any text on the design (or in the list on the right) and type. Your changes save automatically as you go.',
   },
   {
     q: "How do I submit my content for review?",
-    a: 'When you\'re done with a page, click "Submit for Review" in the top bar. Your agency gets an email and reviews your content. You\'ll get an email each time the page\'s status changes.',
+    a: 'When you\'re done with a page, click "Submit for Review" in the top bar. The admins and editors get an email and review your content. You\'ll get an email each time the page\'s status changes.',
   },
   {
     q: "What do the status labels mean?",
-    a: 'Draft: your agency is still preparing the page. In Progress: it\'s your turn to edit it. Pending Review: you\'ve submitted it and your agency is reviewing it. Completed: it\'s final.',
+    a: 'Draft: the page is still being prepared. In Progress: it\'s your turn to edit it. Pending Review: you\'ve submitted it and it\'s being reviewed. Completed: it\'s final.',
   },
   {
     q: "Can I edit a page after submitting it?",
-    a: 'While a page is "Pending Review" it\'s locked so your agency can review a stable version. If they send it back to you, the texts they changed are marked so you can see what\'s new.',
+    a: 'While a page is "Pending Review" it\'s locked so it can be reviewed in a stable version. If it\'s sent back to you, the texts they changed are marked so you can see what\'s new.',
   },
   {
     q: "Will I lose my work if I close the tab?",
@@ -75,14 +75,14 @@ const FAQS = [
   },
   {
     q: "I think my content has a mistake after approval. What now?",
-    a: "Reach out to your project manager using the contact box on this page. They can reopen the page so you can make edits.",
+    a: "Reach out to your project admin using the contact box on this page. They can reopen the page so you can make edits.",
   },
 ];
 
 const GETTING_STARTED = [
-  { icon: "folder-open", title: "Open a page", desc: "Pick a page from My Work" },
+  { icon: "folder-open", title: "Open a page", desc: "Pick a page from your Dashboard" },
   { icon: "edit", title: "Fill it in", desc: "Type your content — it auto-saves" },
-  { icon: "send", title: "Submit", desc: "Send it to your agency to review" },
+  { icon: "send", title: "Submit", desc: "Send it for review" },
 ];
 
 export interface HelpContact {
@@ -91,24 +91,24 @@ export interface HelpContact {
 }
 
 export function HelpSupportScreen({
-  role,
+  audience,
   contact,
 }: {
-  role: "pm" | "client";
-  /** Client only — the PM found via their project's `pm_id`. Ignored for role="pm". */
+  audience: "team" | "contributor";
+  /** Contributors only: the admin of their project. */
   contact?: HelpContact | null;
 }) {
   const [openFaq, setOpenFaq] = React.useState(0);
   const [msg, setMsg] = React.useState("");
   const [sent, setSent] = React.useState(false);
 
-  // Contact target depends on role: clients reach their PM, PMs reach CopyDash support.
+  // Contributors reach their project's admin, everyone else CopyDash support.
   const pm =
-    role === "pm"
+    audience === "team"
       ? { name: "CopyDash Support", role: "Product support team", email: "support@copydash.io" }
       : contact
-        ? { name: contact.name, role: "Your Project Manager", email: contact.email }
-        : { name: "Your Project Manager", role: "Your Project Manager", email: "" };
+        ? { name: contact.name, role: "Your project admin", email: contact.email }
+        : { name: "Your project admin", role: "Your project admin", email: "" };
 
   // Cosmetic only — there is no messages table / real delivery, this just shows the same success toast as the prototype.
   const handleSend = () => {
@@ -153,7 +153,7 @@ export function HelpSupportScreen({
 
           {/* Right column */}
           <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-            {/* Contact PM / support */}
+            {/* Contact admin / support */}
             <div>
               <SectionTitle>Contact your team</SectionTitle>
               <Card>

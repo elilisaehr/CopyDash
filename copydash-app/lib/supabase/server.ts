@@ -1,3 +1,5 @@
+import "server-only";
+
 import { cache } from "react";
 import { createServerClient } from "@supabase/ssr";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";

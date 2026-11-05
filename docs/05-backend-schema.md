@@ -1,12 +1,12 @@
 # Backend Schema — CopyDash
 
-> Transcribed directly from the actual migrations in `supabase/migrations/` (`0001_schema.sql` → `0005_rename_archive.sql`). This is the real, current schema — not a proposal.
+> Transcribed from `supabase/migrations/`. Sections written before migrations 0007–0009 may still use the old PM/Client wording: in the app, "PM" is now an Admin or Editor and "Client" (role value `client`) a Contributor.
 
 ## Entities (one line each)
 
 - **profiles** — one row per Supabase Auth user; carries the PM/Client role.
-- **clients** — a PM's client companies.
-- **client_emails** — one or more email addresses per client (used to auto-link a signing-up Client account).
+- **clients** — legacy, no longer used by the app (replaced by `projects.company`, migration 0009). Kept so a rollback stays possible.
+- **client_emails** — legacy, no longer used by the app. Its auto-link triggers were dropped in 0009: project access comes only from invitations.
 - **projects** — a PM's website projects, each belonging to one client (optional).
 - **project_members** — which auth users (clients) can access which project.
 - **pages** — a project's individual pages, each optionally carrying a PDF or Figma design.
@@ -68,7 +68,8 @@ Indexes: `client_id`; `lower(address)` (used for the auto-link match).
 |---|---|---|---|
 | id | uuid, PK | yes | `gen_random_uuid()` |
 | pm_id | uuid, FK → `auth.users` | yes | — |
-| client_id | uuid, FK → `clients`, on delete set null | no | — |
+| client_id | uuid, FK → `clients`, on delete set null — legacy | no | — |
+| company | text — who the website is for (0009, backfilled from `clients.name`) | yes | `''` |
 | name | text | yes | — |
 | status | text, check in (`Draft`,`In Progress`,`Pending Review`,`Completed`) — **legacy, not shown**: the app derives a project's status from its pages (`lib/review.ts: projectStatus`) | yes | `'Draft'` |
 | pdf_filename, pdf_storage_path, extracted_text | text | no | — |
@@ -224,14 +225,14 @@ Index: `(pm_id, created_at desc)`. **Fully auto-populated by triggers** — the 
 
 - `profiles` 1–1 `auth.users` (same id).
 - `clients` 1–many `client_emails`; `clients` 1–many `projects`.
-- `projects` many–many `auth.users` (clients) via `project_members`.
+- `projects` many–many `auth.users` via `project_members` (role `editor` or `client`).
 - `projects` 1–many `pages`.
 - `pages` 1–many `fields`, 1–many `design_edits`, 0–1 `figma_designs`, 1–many `comments`.
 
 ## User ownership
 
 - **PM-owned**: `clients`, `projects` (directly, via `pm_id`), and transitively `pages`, `fields`, `design_edits`, `comments` (via the project they belong to), `team_invitations`, `branding_settings`, `figma_connections`.
-- **Client-accessed**: a Client sees exactly the `projects` (and everything under them) they've been added to via `project_members` — never another client's data, enforced at the database level by RLS (not just hidden in the UI).
+- **Project members**: a contributor sees exactly the `projects` (and everything under them) they've been added to via `project_members`, enforced by RLS. `project_role(project_id)` (0009) returns the signed-in person's role on a project: `admin`, `editor`, `client` or null. Contributors can't read other members or invitations; the People tab reads them with the service role after checking this role (`lib/people.ts`, `lib/actions/people.ts`).
 
 ## Authentication flow
 
@@ -249,8 +250,15 @@ All tables have RLS enabled. The general pattern:
   - **Read** access to their project, its pages, fields, design edits, comments, and their PM's branding.
   - **Write** access limited to: `fields` (content) and `design_edits` (insert + update) **only while the page is `In Progress`** (restrictive policies via `can_edit_page_copy()`, 0008), moving a page from `In Progress` to `Pending Review` (trigger `pages_b_review_guard` — any other change to the page row is refused), and inserting their own `comments`.
   - Agency people (admins, editors — `is_agency_of_project()`) can move a page to any status.
-- `activity_log`, `team_invitations`, `figma_connections` are **PM-only**, no client access at all.
+- `activity_log`, `team_invitations`, `figma_connections` have no contributor access at all.
+- **Plan limits** (`plan_limits`): `max_projects`, `max_pages_per_project`, `max_members`, `max_contributors` (0009), null = unlimited. The contributor limit is enforced by trigger `check_contributor_limit` on `invitations`: it counts distinct people, contributors on active projects plus pending contributor invitations. Currently null on every plan.
 - Storage (`pdfs` bucket): same pattern via a `is_pm_of_project()`/`is_member_of_project()` check on the path's leading folder (`{project_id}/...`).
+
+**Guards on direct writes (0009 triggers; skipped for server-side work, where there's no signed-in user):**
+- `profiles_guard`: `email` always mirrors the login in `auth.users`; `role` can't change after creation.
+- `comments_guard`: author, name and badge come from the session, the page must belong to the project; afterwards only `resolved` can change, plus `body` for its author.
+- `copy_only_guard` (`fields`, `design_edits`): contributors change `content` only, and can't create history. Skipped inside the hand-off trigger, which writes the baselines.
+- `hand_over_former_admin` (`workspace_members`): when an admin is removed or demoted, their `pm_id` on the workspace's projects, clients and activity goes to the owner, because `pm_id` also gives admin rights.
 
 ## Data validation
 

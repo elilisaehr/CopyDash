@@ -21,6 +21,7 @@ export const pageLimitMessage = (limits: PlanLimits) =>
 export function planLimitError(err: unknown): string | null {
   const msg = err && typeof err === "object" && "message" in err ? String((err as { message: unknown }).message) : "";
   if (msg.includes("PLAN_LIMIT_PROJECTS")) return "Your plan's project limit is reached. Archive a project or upgrade to add more.";
+  if (msg.includes("PLAN_LIMIT_CONTRIBUTORS")) return "Your plan's contributor limit is reached. Upgrade to invite more people.";
   if (msg.includes("PLAN_LIMIT_PAGES")) return "Your plan's page limit for this project is reached. Archive a page or upgrade to add more.";
   return null;
 }

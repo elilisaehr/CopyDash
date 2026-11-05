@@ -1,9 +1,9 @@
 // The review flow's vocabulary, shared by server and client code.
-// A page moves Draft → In Progress (with the client) → Pending Review (with
-// the agency) → Completed, and can be sent back from Pending Review to In
-// Progress. The database enforces who may move it
-// (supabase/migrations/0008_review_flow.sql): the agency moves it anywhere,
-// a client can only submit a page that is with them.
+// A page moves Draft → In Progress (with the contributors) → Pending Review
+// (with the admins and editors) → Completed, and can be sent back from Pending
+// Review to In Progress. The database enforces who may move it
+// (supabase/migrations/0008_review_flow.sql): admins and editors move it
+// anywhere, a contributor can only submit a page that is with them.
 
 import type { PageStatus } from "@/lib/supabase/types";
 

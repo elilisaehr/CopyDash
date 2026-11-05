@@ -4,9 +4,8 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { Icon } from "@/components/ui/icon";
 import { Btn, FieldInput, Spinner } from "@/components/ui/primitives";
-import { AuthVisual } from "@/components/ui/auth-visual";
+import { AuthShell } from "@/components/ui/auth-shell";
 import { acceptInvitation, createAccountAndAccept, signInAndAccept, type AcceptState } from "@/app/invite/[token]/actions";
 import type { InvitationRole } from "@/lib/supabase/types";
 
@@ -15,7 +14,7 @@ export type InviteMode = "create" | "signin" | "accept" | "mismatch" | "invalid"
 const ROLE_LINE: Record<InvitationRole, string> = {
   admin: "as an admin of the workspace",
   editor: "as an editor on their projects",
-  client: "to review and fill in your website copy",
+  client: "as a contributor, to review and fill in the website copy",
 };
 
 export function InviteScreen({
@@ -61,29 +60,12 @@ export function InviteScreen({
   );
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: "#fff", fontFamily: "var(--font-body)" }}>
-      <div style={{ width: "45%", background: "#09090b", display: "flex", flexDirection: "column", padding: "40px 48px", position: "relative", overflow: "hidden" }}>
-        <div style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 10, background: "#7f22fe", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Icon name="gallery-vertical-end" size={18} color="#fff" />
-          </div>
-          <span style={{ fontSize: 18, fontWeight: 700, color: "#fff", fontFamily: "var(--font-sans)" }}>CopyDash</span>
-        </div>
-        <AuthVisual />
-        <div style={{ position: "relative", zIndex: 1 }}>
-          <p style={{ fontSize: 18, color: "#fff", lineHeight: 1.6, margin: 0, fontFamily: "var(--font-sans)" }}>
-            Edit website copy right on the real page design.
-          </p>
-        </div>
-      </div>
-
-      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 40 }}>
-        <div style={{ width: "100%", maxWidth: 380 }}>
+    <AuthShell>
           {mode === "invalid" ? (
             <div>
-              <h2 style={{ margin: "0 0 8px", fontSize: 24, fontWeight: 700, color: "#09090b", fontFamily: "var(--font-sans)" }}>This invitation can&rsquo;t be used</h2>
+              <h2 style={{ margin: "0 0 8px", fontSize: 24, fontWeight: 600, letterSpacing: "-0.02em",  color: "#09090b", fontFamily: "var(--font-sans)" }}>This invitation can&rsquo;t be used</h2>
               <p style={{ margin: "0 0 24px", fontSize: 14, color: "#71717b", lineHeight: 1.6 }}>
-                It has already been accepted, or the agency cancelled it. Ask them to send you a new one — or sign in if you already joined.
+                It has already been accepted, or it was cancelled. Ask for a new one — or sign in if you already joined.
               </p>
               <Link href="/login" style={{ color: "#7f22fe", fontSize: 14, fontWeight: 500 }}>
                 Go to sign in
@@ -91,7 +73,7 @@ export function InviteScreen({
             </div>
           ) : (
             <>
-              <h2 style={{ margin: "0 0 8px", fontSize: 26, fontWeight: 700, color: "#09090b", fontFamily: "var(--font-sans)" }}>Join {workspaceName}</h2>
+              <h2 style={{ margin: "0 0 8px", fontSize: 26, fontWeight: 600, letterSpacing: "-0.02em",  color: "#09090b", fontFamily: "var(--font-sans)" }}>Join {workspaceName}</h2>
               <p style={{ margin: "0 0 28px", fontSize: 14, color: "#71717b", lineHeight: 1.6 }}>
                 {inviterName} invited <strong style={{ color: "#09090b" }}>{email}</strong> {ROLE_LINE[role]}.
               </p>
@@ -152,8 +134,6 @@ export function InviteScreen({
               )}
             </>
           )}
-        </div>
-      </div>
-    </div>
+    </AuthShell>
   );
 }

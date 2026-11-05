@@ -551,7 +551,7 @@ function ProjectChip({ project }: { project: ProjectLite }) {
   const [hov, setHov] = React.useState(false);
   return (
     <Link
-      href={`/pm/projects/${project.id}`}
+      href={`/projects/${project.id}`}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
       style={{

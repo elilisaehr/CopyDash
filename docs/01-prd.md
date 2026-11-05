@@ -36,19 +36,19 @@ Agencies currently collect website content via email threads, generic Google Doc
 
 | Feature | User benefit | Priority |
 |---|---|---|
-| Auth + PM/Client roles | Each person only sees their own projects/clients (or the project they're a member of) | P0 — built |
-| Projects, Clients (with multiple emails per client) | PM's main workspace: organize work per client, per project | P0 — built |
+| Auth + Admin/Editor/Contributor roles, held per project | Each person only sees their workspace's projects or the ones they were invited to | P0 — built |
+| Projects, with a Company field and a People tab | Main workspace: organize work per project and see who is on it | P0 — built |
 | Pages, with PDF or Figma import | Each project is broken into pages, each with its own design to collect copy against | P0 — built |
 | **Design Editor** — edit copy in place on the rendered design (PDF or Figma) | Client sees exactly what their text will look like; no "where does this go" confusion | P0 — built (paragraph-level editing, not yet deployed — see Implementation Plan) |
 | **Field Editor** — structured list of text fields, no visual design | Faster path when there's no design to edit against, or the PM prefers a plain form | P0 — built |
-| Client portal | Clients review/submit content without needing a PM login | P0 — built |
+| Single space | Everyone uses the same app and addresses; each screen adapts to the person's role | P0 — built |
 | Review flow — statuses that say whose turn it is, "what changed" since the last hand-off, email alert to the whole project on every status change | Nobody wonders who's waiting on whom; reviews focus on what changed | Built (B) |
 | Comments per field | Discuss a specific piece of copy without leaving the page | P1 — built |
 | SEO score | Rule-based score PMs can show clients as a selling point | P1 — built |
 | AI writing suggestions | Speeds up drafting; currently a realistic mock, not a real model | P1 — built (mocked, see TRD) |
 | Export (PDF/JSON/CSV) | Hand finished copy to developers in a usable format | P1 — built |
 | Rename / Archive (projects & pages) | Keep the workspace tidy without losing history; restorable | P1 — built |
-| Invitations | Invite editors, admins and clients to chosen projects by email link | Built — email via Resend (needs a verified sending domain before real use); link can also be copied and shared |
+| Invitations | Admins invite admins, editors and contributors; editors invite contributors to their own projects, by email link | Built — email via Resend (needs a verified sending domain before real use); link can also be copied |
 | Client-portal branding | White-label the client's experience with the agency's name/color | P2 — built |
 
 ## Out of scope for version one
@@ -75,7 +75,7 @@ Agencies currently collect website content via email threads, generic Google Doc
 ## Acceptance criteria
 
 - **Given** a PM is signed in and on the Projects page, **when** they create a new project and add a page with a PDF upload, **then** the page appears in that project with status "Draft" and the design is viewable/editable in the Design Editor.
-- **Given** a Client's email matches one already added to a PM's client record, **when** that person signs up with the "Client" role using that email, **then** they are automatically linked to that client's project(s) and see them on their dashboard.
+- **Given** someone was invited to a project, **when** they open the link and accept, **then** they get access to that project with the invited role, and lose it when removed from the People tab.
 - **Given** a text block on a PDF-based design spans multiple lines of the original PDF, **when** the Client clicks it, **then** it behaves as a single editable paragraph (not several disconnected line boxes).
 - **Given** a PM archives a project, **when** they open Settings → Archive, **then** the project is listed there with a "Restore" action that brings it back to the active Projects list.
 
@@ -85,4 +85,4 @@ Agencies currently collect website content via email threads, generic Google Doc
 - **[OPEN QUESTION]** Target customer size (solo freelancer vs. multi-person agency) — affects whether Team Invitations needs to become real.
 - **[OPEN QUESTION]** Is real AI (actual LLM calls) and real outbound email (invitations) required before launch, or acceptable to ship later?
 - **[OPEN QUESTION]** Any compliance requirements given the app stores client PII (names, emails, uploaded files) — GDPR if you have EU clients, data residency, etc.?
-- **[OPEN QUESTION]** What happens to a Client who signs up before their email has been added to any PM's client list? Today they get a profile with nothing linked and see an essentially empty dashboard — is that acceptable, or should there be a clearer "no project yet" message / support contact?
+- **Decided:** signing up always starts a new workspace; project access comes only from invitations. A contributor with no project sees "You haven't been added to a project yet".

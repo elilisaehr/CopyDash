@@ -142,7 +142,7 @@ ${fields
         <ExportOption
           icon="file-text"
           title="Export as PDF"
-          subtitle="Printable document for client sign-off"
+          subtitle="Printable document for sign-off"
           color="#7f22fe"
           bg="#f5f3ff"
           active={exported === "pdf"}

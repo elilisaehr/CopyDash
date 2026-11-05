@@ -43,7 +43,7 @@ function layout({ who, sentence, button, url, footer }: { who: string; sentence:
 export function invitationEmail({ inviterName, workspaceName, role, url }: { inviterName: string; workspaceName: string; role: string; url: string }) {
   const what =
     role === "client"
-      ? `to review and fill in the copy for your website with ${workspaceName}`
+      ? `to work on the website copy with ${workspaceName} as a contributor`
       : `to join ${workspaceName} on CopyDash as ${role === "admin" ? "an admin" : "an editor"}`;
   const footer = "If you weren't expecting this, you can ignore this email.";
   const subject = `${inviterName} invited you to CopyDash`;
