@@ -74,7 +74,7 @@ Shared primitives in `components/ui/primitives.tsx` and `components/ui/`:
 - **Dashboard**: KPI row, recent projects, activity feed — information-dense but skimmable.
 - **Projects/Pages lists**: search + status filter tabs above a card-style table; row-level "…" menu for Rename/Archive/etc.
 - **Design Editor**: split view — rendered design on the left (scroll/zoom), a resizable text-fields panel on the right; each field card shows its label, content, and (for paragraph blocks) a word-count indicator.
-- **Auth screens** (`/login`, `/signup`): split layout, dark left panel with a small custom illustration (`components/ui/auth-visual.tsx` — a CSS/SVG mockup of the product, not a photo) + logo + tagline, form on the right.
+- **Auth screens** (`/login`, `/signup`, `/invite/[token]`): one shared frame (`components/ui/auth-shell.tsx`). Dark left panel with logo, headline and a CSS mockup of the product (`components/ui/auth-visual.tsx`) running off the bottom of the screen; form on the right. Below 900px the panel is hidden and the logo moves above the form. No testimonials until there are real, approved ones. The wording addresses agencies and in-house teams alike, so no "clients".
 
 ## Accessibility
 

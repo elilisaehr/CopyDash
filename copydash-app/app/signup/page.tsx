@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Icon } from "@/components/ui/icon";
 import { Btn, FieldInput, Spinner } from "@/components/ui/primitives";
-import { AuthVisual } from "@/components/ui/auth-visual";
+import { AuthShell } from "@/components/ui/auth-shell";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -45,36 +45,14 @@ export default function SignupPage() {
   };
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: "#fff", fontFamily: "var(--font-body)" }}>
-      <div style={{ width: "45%", background: "#09090b", display: "flex", flexDirection: "column", padding: "40px 48px", position: "relative", overflow: "hidden" }}>
-        <div style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 10, background: "#7f22fe", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Icon name="gallery-vertical-end" size={18} color="#fff" />
-          </div>
-          <span style={{ fontSize: 18, fontWeight: 700, color: "#fff", fontFamily: "var(--font-sans)" }}>CopyDash</span>
-        </div>
-
-        <AuthVisual />
-
-        <div style={{ position: "relative", zIndex: 1 }}>
-          <p style={{ fontSize: 18, color: "#fff", lineHeight: 1.6, margin: "0 0 8px", fontFamily: "var(--font-sans)" }}>
-            Collect content from clients.
-            <br />
-            Deliver to developers. Effortlessly.
-          </p>
-          <p style={{ fontSize: 13, color: "#71717b", margin: 0 }}>Join agencies and freelancers managing content with CopyDash.</p>
-        </div>
-      </div>
-
-      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 40 }}>
-        <div style={{ width: "100%", maxWidth: 380 }}>
+    <AuthShell>
           <Link href="/login" style={{ display: "flex", alignItems: "center", gap: 6, color: "#71717b", fontSize: 13, marginBottom: 24, textDecoration: "none" }}>
             <Icon name="arrow-left" size={14} color="#71717b" /> Back to login
           </Link>
 
           {checkEmail ? (
             <div>
-              <h2 style={{ margin: "0 0 8px", fontSize: 24, fontWeight: 700, color: "#09090b", fontFamily: "var(--font-sans)" }}>Check your email</h2>
+              <h2 style={{ margin: "0 0 8px", fontSize: 24, fontWeight: 600, letterSpacing: "-0.02em",  color: "#09090b", fontFamily: "var(--font-sans)" }}>Check your email</h2>
               <p style={{ margin: 0, fontSize: 14, color: "#71717b", lineHeight: 1.6 }}>
                 We sent a confirmation link to <strong>{form.email}</strong>. Click it to activate your account, then come back and sign in.
               </p>
@@ -84,7 +62,7 @@ export default function SignupPage() {
             </div>
           ) : (
             <>
-              <h2 style={{ margin: "0 0 8px", fontSize: 28, fontWeight: 700, color: "#09090b", fontFamily: "var(--font-sans)" }}>Create your account</h2>
+              <h2 style={{ margin: "0 0 8px", fontSize: 28, fontWeight: 600, letterSpacing: "-0.02em",  color: "#09090b", fontFamily: "var(--font-sans)" }}>Create your account</h2>
               <p style={{ margin: "0 0 12px", fontSize: 14, color: "#71717b" }}>Get started with CopyDash for free</p>
               <p style={{ margin: "0 0 24px", fontSize: 13, color: "#71717b", lineHeight: 1.6, padding: "10px 12px", background: "#fafafa", border: "1px solid #f4f4f5", borderRadius: 8 }}>
                 Invited to a project? Open the link in your invitation email instead — it sets up your access.
@@ -92,11 +70,11 @@ export default function SignupPage() {
               <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                 <FieldInput label="Full name" value={form.name} onChange={(v) => update("name", v)} placeholder="Alex Martin" />
                 <FieldInput label="Email" value={form.email} onChange={(v) => update("email", v)} placeholder="you@company.com" type="email" />
-                <FieldInput label="Password" value={form.password} onChange={(v) => update("password", v)} placeholder="Create a password (min 6 characters)" type="password" />
+                <FieldInput label="Password" value={form.password} onChange={(v) => update("password", v)} placeholder="At least 8 characters" type="password" />
                 {error && (
                   <div style={{ padding: "10px 12px", background: "#fff5f5", border: "1px solid #fecaca", borderRadius: 8, fontSize: 13, color: "#e7000b" }}>{error}</div>
                 )}
-                <Btn type="submit" variant="primary" size="md" fullWidth disabled={loading || !form.name || !form.email || form.password.length < 6} style={{ marginTop: 4 }}>
+                <Btn type="submit" variant="primary" size="md" fullWidth disabled={loading || !form.name || !form.email || form.password.length < 8} style={{ marginTop: 4 }}>
                   {loading ? (
                     <>
                       <Spinner size={14} color="#fff" /> Creating account...
@@ -111,8 +89,6 @@ export default function SignupPage() {
               </p>
             </>
           )}
-        </div>
-      </div>
-    </div>
+    </AuthShell>
   );
 }
