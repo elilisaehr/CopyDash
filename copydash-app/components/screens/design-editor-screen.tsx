@@ -21,6 +21,7 @@ import { CommentButton } from "@/components/features/comments";
 import { computeSEO, SEOToggle, SEOPanel } from "@/components/features/seo";
 import { AISuggestButton } from "@/components/features/ai-suggest";
 import { EditableBlock } from "@/components/features/editable-block";
+import { DesignPage, type BlockFlowInfo } from "@/components/features/design-page";
 import { mockGenerateFieldSuggestions } from "@/lib/ai-mock";
 import { getPdfjs } from "@/lib/pdf";
 import { createClient } from "@/lib/supabase/client";
@@ -104,6 +105,13 @@ export function DesignEditorScreen({
   const wrapRef = React.useRef<HTMLDivElement>(null);
   const pageRefs = React.useRef<Record<number, HTMLDivElement | null>>({});
   const fieldRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
+  // Where each block sits once longer text has pushed the design down, and which ones are too long.
+  const [flowInfo, setFlowInfo] = React.useState<Record<string, BlockFlowInfo>>({});
+  const flowShiftRef = React.useRef<Record<string, number>>({});
+  const onFlow = React.useCallback((info: Record<string, BlockFlowInfo>) => {
+    for (const [id, f] of Object.entries(info)) flowShiftRef.current[id] = f.shift;
+    setFlowInfo((prev) => ({ ...prev, ...info }));
+  }, []);
 
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [saveStatus, setSaveStatus] = React.useState<"idle" | "saving" | "saved">("idle");
@@ -122,13 +130,19 @@ export function DesignEditorScreen({
   const [aiState, setAiState] = React.useState<AiState>("idle");
   const [aiProgress, setAiProgress] = React.useState(0);
   const [aiMsgIdx, setAiMsgIdx] = React.useState(0);
-  const [hint, setHint] = React.useState(() => {
+  // Read after mount: the server can't see localStorage, and reading it in
+  // the initial state made the first render differ (hydration error).
+  const [hint, setHint] = React.useState(false);
+  React.useEffect(() => {
+    let seen = false;
     try {
-      return !localStorage.getItem("cd-design-hint-seen");
+      seen = !!localStorage.getItem("cd-design-hint-seen");
     } catch {
-      return true;
+      /* ignore */
     }
-  });
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!seen) setHint(true);
+  }, []);
   const fileRef = React.useRef<HTMLInputElement>(null);
 
   // Contributors edit only while the page is with them (the database enforces it too).
@@ -360,7 +374,7 @@ export function DesignEditorScreen({
     const pageEl = pageRefs.current[pageIdx];
     const wrap = wrapRef.current;
     if (pageEl && wrap && block) {
-      const target = pageEl.offsetTop + block.top - 140;
+      const target = pageEl.offsetTop + block.top + (flowShiftRef.current[block.id] || 0) - 140;
       wrap.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
     }
   }, [activeId, pdfStatus, pages]);
@@ -759,16 +773,14 @@ export function DesignEditorScreen({
               )}
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 28, padding: "32px 24px 80px" }}>
                 {pages.map((pg) => (
-                  <div
-                    key={pg.pageIndex}
-                    ref={(el) => {
+                  <DesignPage
+                    key={`${pg.pageIndex}-${pg.w}`}
+                    pg={pg}
+                    pageRef={(el) => {
                       pageRefs.current[pg.pageIndex] = el;
                     }}
-                    style={{ position: "relative", width: pg.w, height: pg.h, background: "#fff", borderRadius: 6, overflow: "hidden", boxShadow: "0 4px 30px rgba(0,0,0,0.14)", flexShrink: 0 }}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={pg.url} crossOrigin="anonymous" width={pg.w} height={pg.h} draggable={false} style={{ display: "block", userSelect: "none" }} alt="" />
-                    {pg.blocks.map((b) => (
+                    onFlow={onFlow}
+                    renderBlock={(b, layout) => (
                       <EditableBlock
                         key={b.id}
                         block={withDesignFont(b)}
@@ -778,9 +790,10 @@ export function DesignEditorScreen({
                         onActivate={setActiveId}
                         active={activeId === b.id}
                         editable={editable}
+                        layout={layout}
                       />
-                    ))}
-                  </div>
+                    )}
+                  />
                 ))}
               </div>
             </div>
@@ -892,6 +905,14 @@ export function DesignEditorScreen({
                   </div>
                   <FieldTextarea value={field.content} onChange={(v) => onChange(b.id, v)} maxLength={field.maxChars} rows={b.kind === "body" || b.kind === "lead" ? 3 : 2} disabled={!editable} />
                   {isParagraph(b) && <WordCount text={field.content} original={b.text} />}
+                  {flowInfo[b.id]?.overflow && (
+                    <div style={{ marginTop: 8, padding: "7px 10px", borderRadius: 8, background: "#fffbeb", border: "1px solid #fde68a", display: "flex", gap: 7, alignItems: "flex-start" }}>
+                      <Icon name="alert-circle" size={13} color="#b45309" style={{ marginTop: 1, flexShrink: 0 }} />
+                      <span style={{ fontSize: 11, lineHeight: 1.45, color: "#92400e", fontFamily: "var(--font-body)" }}>
+                        Too long for the space in the design — everything below is pushed down. Shorten it to keep the original layout.
+                      </span>
+                    </div>
+                  )}
                   {change ? (
                     <ChangeNote change={change} original={b.text} />
                   ) : edited && (
