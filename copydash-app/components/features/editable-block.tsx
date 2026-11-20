@@ -148,6 +148,7 @@ export function EditableBlock({
       </div>
       <div
         ref={ref}
+        data-block-id={block.id}
         contentEditable={editable}
         suppressContentEditableWarning
         spellCheck={false}
