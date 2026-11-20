@@ -182,6 +182,7 @@ export function DesignPage({
           onPicture: liveText || onPicture.has(b.id),
           overflow: extraOf(b) > 0,
           pageW: pg.w,
+          fitWidth: liveText,
           onMeasure,
         }),
       )}

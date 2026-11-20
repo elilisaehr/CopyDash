@@ -32,7 +32,8 @@ import { createClient } from "@/lib/supabase/client";
 import { changePageStatus } from "@/lib/actions/review";
 import { REBUILD_ERROR_KEY } from "@/lib/create-page";
 import { renderPdfDesign, joinLines, legacyLineIdPrefix, sampleBg, luminance, type DesignBlock, type RenderedPage, type BlockKind } from "@/lib/pdf-design";
-import { FONT_NAMES, cssFamily, fontForKind, useDesignFonts, useFontPreviews, useWebFonts, type DesignFonts } from "@/lib/design-fonts";
+import { EditorFonts } from "@/components/features/editor-fonts";
+import { FONT_NAMES, cssFamily, uploadFontFile, useDesignFonts, useFontPreviews, useWebFonts, withFont, type DesignFonts } from "@/lib/design-fonts";
 import { useResizablePanel } from "@/hooks/use-resizable-panel";
 import { ResizeHandle } from "@/components/ui/resize-handle";
 import type { Project, Page, PageStatus, UserRole, FigmaDesign } from "@/lib/supabase/types";
@@ -886,12 +887,10 @@ export function DesignEditorScreen({
     setDesignFonts(next);
   };
 
-  // PDF designs carry no usable font, so edited copy uses the fonts the PM
-  // picked for the page (Figma blocks already know their real font).
-  const withDesignFont = (b: DesignBlock): DesignBlock => {
-    const font = figmaDesign ? null : fontForKind(designFonts, b.kind);
-    return font ? { ...b, fontFamily: cssFamily(font) } : b;
-  };
+  // PDF designs carry no usable font, so text uses the page's design fonts:
+  // detected per PDF style at import (rebuilt pages), or picked for headings
+  // and body (Figma blocks already know their real font).
+  const withDesignFont = (b: DesignBlock): DesignBlock => (figmaDesign ? b : withFont(designFonts, b));
 
   const handleResyncFigma = async () => {
     if (!figmaDesign) return;
@@ -1382,8 +1381,24 @@ export function DesignEditorScreen({
         <ConversionReport items={report} pages={rebuild?.model.pages.length ?? 1} />
       </Modal>
 
-      <Modal open={fontsOpen} onClose={() => setFontsOpen(false)} title="Design Fonts" width={480}>
-        {fontsOpen && <FontsPanel value={designFonts} onSave={saveFonts} onClose={() => setFontsOpen(false)} />}
+      <Modal open={fontsOpen} onClose={() => setFontsOpen(false)} title="Design Fonts" width={isRebuild && rebuild ? 720 : 480}>
+        {fontsOpen &&
+          (isRebuild && rebuild ? (
+            <EditorFonts
+              blocks={rebuild.model.pages.flatMap((p) => p.blocks)}
+              fonts={designFonts}
+              pdf={pdfBuffer}
+              onSave={async (r) => {
+                const files = { ...(designFonts?.files ?? {}) };
+                const supabase = createClient();
+                for (const [family, file] of Object.entries(r.uploads)) files[family] = await uploadFontFile(supabase, project.id, family, file);
+                await saveFonts({ ...(designFonts ?? {}), styles: r.styles, files });
+                setFontsOpen(false);
+              }}
+            />
+          ) : (
+            <FontsPanel value={designFonts} onSave={saveFonts} onClose={() => setFontsOpen(false)} />
+          ))}
       </Modal>
 
       {/* Closing without choosing keeps every CopyDash edit — nothing is lost. */}

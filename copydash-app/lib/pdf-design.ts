@@ -81,7 +81,20 @@ export interface DesignBlock {
    * edited text keeps rendering in the design's own typeface instead of
    * falling back to the app's UI font. Undefined falls back to the app font. */
   fontFamily?: string;
+  /** PDF path: the PDF text style (pdf.js font, see styleKeyOf) of the
+   * block's first run — the key the page's detected design fonts are
+   * stored under (pages.design_fonts.styles). */
+  styleKey?: string;
 }
+
+/**
+ * A PDF text style: the pdf.js font name without its per-load document
+ * number ("g_d3_f2" → "f2", so the same PDF gives the same key every time)
+ * and the type size in points. The size matters: a Figma PDF packs glyphs
+ * of several fonts and weights into one pdf.js font (a heading in ExtraBold
+ * and body text in Regular can share "f1"), and those come at different sizes.
+ */
+export const styleKeyOf = (fontName: string, sizePt: number) => `${fontName.replace(/^g_d\d+_/, "")}@${Math.round(sizePt)}`;
 
 // ── Small helpers (ported verbatim) ──────────────────────────────────────
 
@@ -199,6 +212,7 @@ interface RawItem {
   fontH: number;
   text: string;
   fontFamily?: string;
+  styleKey?: string;
 }
 
 interface Line {
@@ -214,6 +228,7 @@ interface Segment {
   fontH: number;
   text: string;
   fontFamily?: string;
+  styleKey?: string;
 }
 
 interface Paragraph {
@@ -224,8 +239,32 @@ interface Paragraph {
 
 const joinText = (parts: string[]) => parts.join(" ").replace(/\s+/g, " ").trim();
 
-const toSegment = (group: RawItem[]): Segment | null => {
-  const text = joinText(group.map((o) => o.text));
+// Join a line's text runs as they sit on the page: a space only where
+// there's a gap. A PDF often cuts a word into several runs
+// ("conserv" + "ation", at a kerning or style change); a blind space
+// would split the word.
+const joinByGap = (group: RawItem[]) => {
+  let s = "";
+  for (let i = 0; i < group.length; i++) {
+    const o = group[i];
+    if (i > 0 && !/\s$/.test(s) && !/^\s/.test(o.text)) {
+      const prev = group[i - 1];
+      const gap = o.x - (prev.x + prev.w);
+      const em = Math.min(prev.fontH, o.fontH);
+      // Pieces of one word touch or overlap a little (Figma's last letters
+      // often start before the previous run's end, by up to ~1 em); a word
+      // space is ~0.25 em, and still > 0.05 em next to a larger word. A run
+      // starting before the middle of the previous one is a separate text
+      // laid on the same line.
+      if (gap > em * 0.05 || o.x < prev.x + prev.w / 2) s += " ";
+    }
+    s += o.text;
+  }
+  return s.replace(/\s+/g, " ").trim();
+};
+
+const toSegment = (group: RawItem[], byGap = false): Segment | null => {
+  const text = byGap ? joinByGap(group) : joinText(group.map((o) => o.text));
   if (!text) return null;
   return {
     x: Math.min(...group.map((o) => o.x)),
@@ -234,6 +273,7 @@ const toSegment = (group: RawItem[]): Segment | null => {
     fontH: Math.max(...group.map((o) => o.fontH)),
     text,
     fontFamily: group[0].fontFamily,
+    styleKey: group[0].styleKey,
   };
 };
 
@@ -286,6 +326,11 @@ export function buildBlocks(
   pageIndex: number,
   ctx: CanvasRenderingContext2D,
   transformFn: MatrixTransformFn,
+  /** Join text runs by their gaps instead of always with a space. Only for
+   * the rebuilt pages, whose blocks are saved once at import: the legacy
+   * PDF pages recompute their blocks on every load, and a changed text
+   * would change the id their saved edits are keyed by. */
+  joinRunsByGap = false,
 ): DesignBlock[] {
   const scale = viewport.scale;
   const raw: RawItem[] = [];
@@ -296,7 +341,7 @@ export function buildBlocks(
     if (fontH < 4) continue;
     const fontName = (it as PdfTextItem).fontName as string | undefined;
     const fontFamily = fontName ? styles[fontName]?.fontFamily : undefined;
-    raw.push({ x: tx[4], baseline: tx[5], w: it.width * scale, fontH, text: it.str, fontFamily });
+    raw.push({ x: tx[4], baseline: tx[5], w: it.width * scale, fontH, text: it.str, fontFamily, styleKey: fontName ? styleKeyOf(fontName, fontH / scale) : undefined });
   }
   raw.sort((a, b) => a.baseline - b.baseline || a.x - b.x);
 
@@ -327,7 +372,7 @@ export function buildBlocks(
   // typical column gutter.
   const segments: Segment[] = [];
   const pushSegment = (group: RawItem[]) => {
-    const s = toSegment(group);
+    const s = toSegment(group, joinRunsByGap);
     if (s) segments.push(s);
   };
   for (const L of lines) {
@@ -336,7 +381,11 @@ export function buildBlocks(
     for (let i = 1; i < its.length; i++) {
       const prev = group[group.length - 1];
       const gap = its[i].x - (prev.x + prev.w);
-      if (gap > Math.max(16 * scale, Math.min(prev.fontH, its[i].fontH) * 2)) {
+      // Rebuilt pages: 1.2 em — a word space stays under ~0.5 em even when
+      // justified, and big display figures in columns ("240+ 412 5m+")
+      // can sit only ~1.4 em apart. Legacy pages keep 2 em (same block ids).
+      const colGap = joinRunsByGap ? 1.2 : 2;
+      if (gap > Math.max(16 * scale, Math.min(prev.fontH, its[i].fontH) * colGap)) {
         pushSegment(group);
         group = [its[i]];
       } else group.push(its[i]);
@@ -409,6 +458,7 @@ export function buildBlocks(
       dark: luminance(bg) < 0.5,
       kind: size >= 30 ? "heading" : size >= 22 ? "subhead" : size >= 17 ? "lead" : "body",
       fontFamily: first.fontFamily,
+      styleKey: first.styleKey,
       color: ink ? `rgb(${ink.color.join(",")})` : undefined,
       weight: ink ? stemWeight(ink.stem / fontH) : undefined,
       wrap: multi || undefined,

@@ -18,7 +18,8 @@
 // operations instead (pdf.js `operationsFilter`) loses clip paths that a
 // PDF defines together with a fill.
 
-import { buildBlocks, type DesignBlock, type PdfTextItem, type PdfTextStyle } from "@/lib/pdf-design";
+import { buildBlocks, styleKeyOf, type DesignBlock, type PdfTextItem, type PdfTextStyle } from "@/lib/pdf-design";
+import { pickSamples, type StyleSample } from "@/lib/font-detect";
 
 type Pdfjs = typeof import("pdfjs-dist");
 type Box = [number, number, number, number]; // x0, y0, x1, y1 in page px
@@ -81,6 +82,8 @@ export interface ReconstructedPage {
    * the editor; `layers` are used only to redraw the page when text grows. */
   background: HTMLCanvasElement;
   report: ReportItem[];
+  /** Sample lines of each text style, for font detection (lib/font-detect). Not saved. */
+  styles: StyleSample[];
 }
 
 type Mat = number[];
@@ -291,20 +294,31 @@ export async function reconstructPdf(
     await page.render({ canvasContext: octx, viewport: vp, canvas: original }).promise;
 
     const tc = await page.getTextContent();
-    // Icon fonts write icon names as text ("angle-right", "arrow-left"): those
-    // stay pictures in the background, not editable text.
+    // Icon fonts write icon names as text ("angle-right", "arrow-left") or
+    // private-use characters (Font Awesome's U+F04B…): those stay pictures
+    // in the background, not editable text.
     const isIconName = (t: string) => {
-      const words = t.trim().split(/\s+/);
+      const s = t.trim();
+      if (s && /^[\uE000-\uF8FF\s]+$/u.test(s)) return true;
+      const words = s.split(/\s+/);
       return words.length > 0 && words.every((w) => /^[a-z]+(-[a-z0-9]+)+$/.test(w));
     };
     const allItems = tc.items as PdfTextItem[];
     // Rotated or slanted text can't be edited in place: it stays in the background.
     const isRotated = (t: PdfTextItem) => Math.abs(t.transform[1]) > 0.01 * Math.abs(t.transform[0]) || Math.abs(t.transform[2]) > 0.01 * Math.abs(t.transform[3]);
-    const textItems = allItems.filter((t) => !(t.str && isIconName(t.str)));
+    // Ligature icon fonts (Material Icons) write a plain word ("search",
+    // "check") that the font draws as one square icon: the run is about
+    // 1 em wide where the word as text would be several.
+    const isLigatureIcon = (t: PdfTextItem) => {
+      const s = t.str?.trim() || "";
+      const size = Math.hypot(t.transform[2], t.transform[3]);
+      return /^[a-z][a-z0-9_]{3,}$/.test(s) && size > 0 && t.width < size * 1.5;
+    };
+    const textItems = allItems.filter((t) => !(t.str && (isIconName(t.str) || isLigatureIcon(t))));
     const iconItems = allItems.length - textItems.length;
     const items = textItems.filter((t) => !isRotated(t));
     const rotatedItems = textItems.filter((t) => t.str?.trim() && isRotated(t)).length;
-    const candidates = buildBlocks(items, tc.styles as Record<string, PdfTextStyle>, vp, p - 1, octx, (m1, m2) => pdfjs.Util.transform(m1, m2));
+    const candidates = buildBlocks(items, tc.styles as Record<string, PdfTextStyle>, vp, p - 1, octx, (m1, m2) => pdfjs.Util.transform(m1, m2), true);
     const textBoxes: Box[] = items
       .filter((t) => t.str && t.str.trim())
       .map((t) => {
@@ -611,6 +625,26 @@ export async function reconstructPdf(
       return n > 0 && ink / n > 0.02;
     });
     const hiddenText = candidates.length - blocks.length;
+    // Figma states text runs a little wider than they draw (a run's last
+    // letters often start before its stated end), so a block's width read
+    // from the runs overshoots on the right — by up to ~1 em. The editor
+    // fits the live text to that width and centres on it: take the right
+    // edge from the ink instead. The left edge stays the glyph origin.
+    for (const b of blocks) {
+      let right = -1;
+      const x0 = Math.max(0, Math.floor(b.x));
+      const x1 = Math.min(W, Math.ceil(b.x + b.w + 2));
+      for (let y = Math.max(0, Math.floor(b.top)); y < Math.min(H, b.top + b.h); y++) {
+        for (let x = x1 - 1; x > Math.max(x0, right); x--) {
+          const i = (y * W + x) * 4;
+          if (Math.abs(od[i] - fd[i]) + Math.abs(od[i + 1] - fd[i + 1]) + Math.abs(od[i + 2] - fd[i + 2]) > 60) {
+            right = x + 1;
+            break;
+          }
+        }
+      }
+      if (right > b.x + b.fontH * 0.3 && right < b.x + b.w) b.w = right - b.x;
+    }
     // Headings keep the designer's line breaks ("Le temps long." / "Les liens
     // durables.") — the live font differs, so re-flowing by width would move
     // them. The id was computed from the joined text, so it doesn't change.
@@ -679,7 +713,18 @@ export async function reconstructPdf(
       report.push({ code: "hidden_images", count: hidden, message: "Some pictures are completely covered by others (e.g. hidden carousel slides). They are kept but not shown." });
 
     console.info(`[pdf-reconstruct] page ${p}: ${Math.round(performance.now() - t0)} ms, ${vectorCount} vector layers, ${imageInfo.size} images`);
-    out.push({ pageIndex: p - 1, scale, w: W, h: H, layers, images, blocks, original, background, report });
+    // A few lines of each text style (pdf.js font), for font detection.
+    const styles = pickSamples(
+      items
+        .filter((t) => t.str?.trim() && t.fontName)
+        .map((t) => {
+          const m = pdfjs.Util.transform(vp.transform, t.transform);
+          const fontH = Math.hypot(m[2], m[3]);
+          return { str: t.str, key: styleKeyOf(t.fontName as string, fontH / vp.scale), x: m[4], baseline: m[5], fontH, w: t.width * vp.scale };
+        }),
+    );
+
+    out.push({ pageIndex: p - 1, scale, w: W, h: H, layers, images, blocks, original, background, report, styles });
     page.cleanup();
   }
   return out;

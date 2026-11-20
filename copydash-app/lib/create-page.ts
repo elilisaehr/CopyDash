@@ -5,6 +5,9 @@
 import { createClient } from "@/lib/supabase/client";
 import { PdfPasswordError, rebuildPdf, saveRebuild } from "@/lib/pdf-rebuild-store";
 import type { ReconstructedPage } from "@/lib/pdf-reconstruct";
+import { detectPdfFonts } from "@/lib/font-detect";
+import { uploadFontFile, type DesignFonts } from "@/lib/design-fonts";
+import type { FontStepResult, FontStepStyle } from "@/components/features/font-step";
 
 export interface NewPageData {
   name: string;
@@ -18,7 +21,13 @@ export interface NewPageData {
  * A PDF is rebuilt into an editable page (lib/pdf-rebuild-store) — that takes
  * a few seconds, reported through `onProgress`.
  */
-export async function createPage(projectId: string, data: NewPageData, onProgress?: (msg: string) => void): Promise<string> {
+export async function createPage(
+  projectId: string,
+  data: NewPageData,
+  onProgress?: (msg: string) => void,
+  /** Rebuilt PDFs: shows the detected fonts for the user to confirm (null = skipped). */
+  confirmFonts?: (styles: FontStepStyle[]) => Promise<FontStepResult | null>,
+): Promise<string> {
   const supabase = createClient();
   // Split the PDF first: a password-protected file is refused before any page exists.
   let rebuilt: ReconstructedPage[] | null = null;
@@ -33,6 +42,33 @@ export async function createPage(projectId: string, data: NewPageData, onProgres
       rebuildError = errorText(e);
     }
   }
+  // Design fonts: recognised from the letters, confirmed by the user.
+  let designFonts: DesignFonts | null = null;
+  if (rebuilt && confirmFonts) {
+    let detected: FontStepStyle[] = [];
+    try {
+      detected = (await detectPdfFonts(rebuilt, onProgress)).map((d) => ({
+        key: d.key,
+        family: d.best?.family ?? null,
+        weight: d.best?.weight ?? 400,
+        confidence: d.confidence,
+        alternatives: d.alternatives.map((a) => a.family),
+        sample: d.sample,
+        chars: d.chars,
+      }));
+    } catch (e) {
+      console.warn("Font detection failed — the page keeps the default font", e);
+    }
+    if (detected.length) {
+      onProgress?.("Waiting for the fonts to be confirmed");
+      const choice = await confirmFonts(detected);
+      if (choice) {
+        const files: Record<string, string> = {};
+        for (const [family, file] of Object.entries(choice.uploads)) files[family] = await uploadFontFile(supabase, projectId, family, file);
+        designFonts = { styles: choice.styles, ...(Object.keys(files).length ? { files } : {}) };
+      }
+    }
+  }
   const { data: newPage, error: insertErr } = await supabase
     .from("pages")
     .insert({
@@ -42,6 +78,7 @@ export async function createPage(projectId: string, data: NewPageData, onProgres
       template: "custom",
       has_pdf_design: !!data.file || !!data.figmaUrl,
       design_source: data.file ? (rebuilt ? "pdf_html" : "pdf") : data.figmaUrl ? "figma" : null,
+      design_fonts: designFonts,
     })
     .select("id")
     .single();
