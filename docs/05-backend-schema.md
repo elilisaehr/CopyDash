@@ -16,6 +16,7 @@
 - **figma_connections** — one Figma Personal Access Token per PM.
 - **figma_designs** — the fetched Figma frame (image + text blocks) for a page.
 - **pdf_reconstructions** — a PDF imported as an editable page: background layers, pictures, text blocks and the conversion report (files in the `pdfs` bucket).
+- **pdf_photo_edits** — on a rebuilt page, a picture replaced by an uploaded photo and/or re-cropped in its frame.
 - **comments** — per-field discussion thread entries.
 - **activity_log** — the PM dashboard's activity feed, auto-populated by triggers.
 - **notification_prefs** — one row per user, a JSON blob of notification toggles.
@@ -179,6 +180,18 @@ Written only by the `record_page_handoff` trigger (after a page's status changes
 
 RLS like `figma_designs`: admins and editors of the page write, every member of the page reads. The files use the existing `pdfs` bucket policies.
 
+### `pdf_photo_edits` (0011)
+| Field | Type | Required |
+|---|---|---|
+| page_id | uuid, FK → `pages`, cascade | yes |
+| piece | text `"<page index>:<layer index>"` in `pdf_reconstructions.model` | yes |
+| path | text — uploaded photo, `pdfs/<project>/pages/<page>/photos/…`; null = the original picture, re-cropped | no |
+| zoom | real, 1–10 (the editor allows 1–4), default 1 | yes |
+| dx, dy | real, PDF points, default 0 — pan inside the frame | yes |
+| updated_by, updated_at | set by the `pdf_photo_edits_guard` trigger | yes |
+
+PK `(page_id, piece)`. Same rules as `design_edits`: every member of the page writes, contributors only on their turn (`can_edit_page_copy`, restrictive policies). The trigger refuses a `path` outside the page's photos folder. Storage: `can_upload_page_photo` + policy "pdfs: members upload page photos" let members upload (insert only) into `<project>/pages/<page>/photos/`. A new split of the PDF (Replace / Try again) deletes the page's rows.
+
 ### `comments`
 | Field | Type | Required | Default |
 |---|---|---|---|
@@ -238,7 +251,7 @@ Index: `(pm_id, created_at desc)`. **Fully auto-populated by triggers** — the 
 - `clients` 1–many `client_emails`; `clients` 1–many `projects`.
 - `projects` many–many `auth.users` via `project_members` (role `editor` or `client`).
 - `projects` 1–many `pages`.
-- `pages` 1–many `fields`, 1–many `design_edits`, 0–1 `figma_designs`, 0–1 `pdf_reconstructions`, 1–many `comments`.
+- `pages` 1–many `fields`, 1–many `design_edits`, 0–1 `figma_designs`, 0–1 `pdf_reconstructions`, 0–many `pdf_photo_edits`, 1–many `comments`.
 
 ## User ownership
 

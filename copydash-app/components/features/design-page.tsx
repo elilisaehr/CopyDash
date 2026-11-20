@@ -26,6 +26,8 @@ export function DesignPage({
   onFlow,
   liveText,
   stack,
+  patches,
+  renderOverlay,
 }: {
   pg: RenderedPage;
   pageRef?: (el: HTMLDivElement | null) => void;
@@ -37,6 +39,12 @@ export function DesignPage({
   /** Rebuilt PDF page: the pieces the image is made of, in paint order (page px). When text
    * grows, each piece is moved, stretched or zoomed on its own instead of guessing from the image. */
   stack?: StackPiece[];
+  /** Rebuilt page: frames (page px) whose picture was replaced or re-cropped. The page is
+   * shown as the exact background with only these areas redrawn from `stack`. */
+  patches?: StackBox[];
+  /** Drawn above the page image, under the text (e.g. the photo selection). Gets the
+   * vertical offset growing text adds at a page y, and the page's flow steps. */
+  renderOverlay?: (shiftAt: (y: number) => number) => React.ReactNode;
 }) {
   const [sizes, setSizes] = React.useState<Record<string, { cur: number; orig: number }>>({});
   const onMeasure = React.useCallback((id: string, cur: number, orig: number) => {
@@ -99,6 +107,8 @@ export function DesignPage({
 
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const flowing = flow.total > 0 && !!img;
+  const patched = !!stack && !!patches?.length && !!img;
+  const drawn = flowing || patched;
   const pictures = React.useMemo(
     () => {
       if (!flowing || !img || stack) return [];
@@ -122,10 +132,14 @@ export function DesignPage({
     return ids;
   }, [img, pictures, pg.blocks, pg.w, pg.h]);
   React.useLayoutEffect(() => {
-    if (!flowing || !img || !canvasRef.current) return;
-    if (stack) drawStack(canvasRef.current, stack, pg.w, pg.h, flow.steps, flow.total);
+    if (!drawn || !img || !canvasRef.current) return;
+    if (stack && flowing) drawStack(canvasRef.current, stack, pg.w, pg.h, flow.steps, flow.total);
+    else if (stack && patches?.length) drawPatched(canvasRef.current, img, stack, pg.w, pg.h, patches);
     else drawFlow(canvasRef.current, img, pg.w, pg.h, flow.steps, flow.total, pictures, pg.blocks);
-  }, [flowing, img, stack, pg.w, pg.h, pg.blocks, flow.steps, flow.total, pictures]);
+  }, [drawn, flowing, img, stack, patches, pg.w, pg.h, pg.blocks, flow.steps, flow.total, pictures]);
+
+  const steps = flow.steps;
+  const shiftAt = React.useCallback((y: number) => (img ? offsetAt(steps, y) : 0), [img, steps]);
 
   const height = pg.h + (img ? flow.total : 0);
 
@@ -135,8 +149,9 @@ export function DesignPage({
       style={{ position: "relative", width: pg.w, height, background: "#fff", borderRadius: 6, overflow: "hidden", boxShadow: "0 4px 30px rgba(0,0,0,0.14)", flexShrink: 0 }}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={pg.url} crossOrigin="anonymous" width={pg.w} height={pg.h} draggable={false} style={{ display: flowing ? "none" : "block", userSelect: "none" }} alt="" />
-      {flowing && <canvas ref={canvasRef} style={{ display: "block", width: pg.w, height }} />}
+      <img src={pg.url} crossOrigin="anonymous" width={pg.w} height={pg.h} draggable={false} style={{ display: drawn ? "none" : "block", userSelect: "none" }} alt="" />
+      {drawn && <canvas ref={canvasRef} style={{ display: "block", width: pg.w, height }} />}
+      {renderOverlay?.(shiftAt)}
 
       {/* A block spanning a cut (e.g. a paragraph beside a growing title)
           hides the stretched strip behind its own background. */}
@@ -190,7 +205,7 @@ export function DesignPage({
   );
 }
 
-type StackBox = [number, number, number, number];
+export type StackBox = [number, number, number, number];
 export type StackPiece =
   | { kind: "vector"; img: CanvasImageSource; box: StackBox }
   | { kind: "image"; img: CanvasImageSource; box: StackBox; frame: StackBox; radius: number; opacity: number };
@@ -212,6 +227,39 @@ function drawStack(canvas: HTMLCanvasElement, stack: StackPiece[], w: number, h:
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, w, h + total);
+  drawPieces(ctx, stack, steps);
+}
+
+/**
+ * No text has grown, but some pictures were replaced or re-cropped: the exact
+ * background everywhere, and inside each changed frame the pieces redrawn in
+ * paint order (so a gradient or a logo painted over the photo stays on top).
+ */
+function drawPatched(canvas: HTMLCanvasElement, img: HTMLImageElement, stack: StackPiece[], w: number, h: number, patches: StackBox[]) {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.drawImage(img, 0, 0, w, h);
+  for (const [x0, y0, x1, y1] of patches) {
+    // Whole page pixels, one pixel wider: no seam of the old picture at the edge.
+    const r: StackBox = [Math.floor(x0) - 1, Math.floor(y0) - 1, Math.ceil(x1) + 1, Math.ceil(y1) + 1];
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(r[0], r[1], r[2] - r[0], r[3] - r[1]);
+    ctx.clip();
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(r[0], r[1], r[2] - r[0], r[3] - r[1]);
+    drawPieces(ctx, stack.filter((p) => overlaps(p.kind === "image" ? p.frame : p.box, r)), []);
+    ctx.restore();
+  }
+}
+
+const overlaps = (a: StackBox, b: StackBox) => a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1];
+
+function drawPieces(ctx: CanvasRenderingContext2D, stack: StackPiece[], steps: FlowStep[]) {
   for (const p of stack) {
     if (p.kind === "vector") {
       const [x0, y0, x1, y1] = p.box;

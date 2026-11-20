@@ -151,6 +151,9 @@ export async function saveRebuild(
   const model: StoredModel = { pages: stored };
   const { error } = await supabase.from("pdf_reconstructions").upsert({ page_id: pageId, version: REBUILD_MODEL_VERSION, model, created_at: new Date().toISOString() });
   if (error) throw error;
+  // Replaced / re-cropped photos point at pieces of the previous split: they no longer apply.
+  const { error: photoErr } = await supabase.from("pdf_photo_edits").delete().eq("page_id", pageId);
+  if (photoErr) console.warn("Could not clear the photo edits of the previous split", photoErr);
   return pages.flatMap((p) => p.report);
 }
 
@@ -182,10 +185,31 @@ export function rebuildToRendered(model: StoredModel, backgrounds: string[], k: 
   }));
 }
 
+/** A picture's placement in the PDF (PDF points), whatever file is used to draw it. */
+export interface PhotoPlacement {
+  /** Key into StoredPage.images. */
+  src: string;
+  box: Box;
+  frame: Box;
+  radius: number;
+  opacity: number;
+}
+
 /** A page's pieces with their pictures loaded, geometry in PDF points. */
 export type LoadedPiece =
   | { kind: "vector"; img: HTMLImageElement; box: Box }
-  | { kind: "image"; img: HTMLImageElement; box: Box; frame: Box; radius: number; opacity: number };
+  | {
+      kind: "image";
+      img: HTMLImageElement;
+      box: Box;
+      frame: Box;
+      radius: number;
+      opacity: number;
+      /** "<page index>:<layer index>" — the key of its row in pdf_photo_edits. */
+      piece: string;
+      /** Where the picture itself sits (`box`/`frame` above may be its baked `shown` render). */
+      orig: PhotoPlacement;
+    };
 
 const loadImage = (url: string) =>
   new Promise<HTMLImageElement>((resolve, reject) => {
@@ -218,14 +242,16 @@ export async function loadPieces(supabase: SupabaseClient, model: StoredModel): 
     return p;
   };
   const pages = await Promise.all(
-    model.pages.map((pg) =>
+    model.pages.map((pg, pi) =>
       Promise.all(
-        pg.layers.map(async (l): Promise<LoadedPiece | null> => {
+        pg.layers.map(async (l, li): Promise<LoadedPiece | null> => {
           if (l.kind === "vector") return { kind: "vector", img: await get(l.file), box: l.box };
+          const piece = `${pi}:${li}`;
+          const orig: PhotoPlacement = { src: l.src, box: l.box, frame: l.frame, radius: l.radius, opacity: l.opacity };
           // Prefer the picture as drawn in its frame (pixel-identical); clip and opacity are baked in.
-          if (l.shown && l.shownBox) return { kind: "image", img: await get(l.shown), box: l.shownBox, frame: l.shownBox, radius: 0, opacity: 1 };
+          if (l.shown && l.shownBox) return { kind: "image", img: await get(l.shown), box: l.shownBox, frame: l.shownBox, radius: 0, opacity: 1, piece, orig };
           const path = pg.images[l.src];
-          return path ? { kind: "image", img: await get(path), box: l.box, frame: l.frame, radius: l.radius, opacity: l.opacity } : null;
+          return path ? { kind: "image", img: await get(path), box: l.box, frame: l.frame, radius: l.radius, opacity: l.opacity, piece, orig } : null;
         }),
       ).then((pieces) => pieces.filter((x): x is LoadedPiece => !!x)),
     ),
