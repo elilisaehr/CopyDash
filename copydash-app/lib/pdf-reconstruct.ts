@@ -18,7 +18,8 @@
 // operations instead (pdf.js `operationsFilter`) loses clip paths that a
 // PDF defines together with a fill.
 
-import { buildBlocks, type DesignBlock, type PdfTextItem, type PdfTextStyle } from "@/lib/pdf-design";
+import { buildBlocks, styleKeyOf, type DesignBlock, type PdfTextItem, type PdfTextStyle } from "@/lib/pdf-design";
+import { pickSamples, type StyleSample } from "@/lib/font-detect";
 
 type Pdfjs = typeof import("pdfjs-dist");
 type Box = [number, number, number, number]; // x0, y0, x1, y1 in page px
@@ -81,6 +82,8 @@ export interface ReconstructedPage {
    * the editor; `layers` are used only to redraw the page when text grows. */
   background: HTMLCanvasElement;
   report: ReportItem[];
+  /** Sample lines of each text style, for font detection (lib/font-detect). Not saved. */
+  styles: StyleSample[];
 }
 
 type Mat = number[];
@@ -710,7 +713,18 @@ export async function reconstructPdf(
       report.push({ code: "hidden_images", count: hidden, message: "Some pictures are completely covered by others (e.g. hidden carousel slides). They are kept but not shown." });
 
     console.info(`[pdf-reconstruct] page ${p}: ${Math.round(performance.now() - t0)} ms, ${vectorCount} vector layers, ${imageInfo.size} images`);
-    out.push({ pageIndex: p - 1, scale, w: W, h: H, layers, images, blocks, original, background, report });
+    // A few lines of each text style (pdf.js font), for font detection.
+    const styles = pickSamples(
+      items
+        .filter((t) => t.str?.trim() && t.fontName)
+        .map((t) => {
+          const m = pdfjs.Util.transform(vp.transform, t.transform);
+          const fontH = Math.hypot(m[2], m[3]);
+          return { str: t.str, key: styleKeyOf(t.fontName as string, fontH / vp.scale), x: m[4], baseline: m[5], fontH, w: t.width * vp.scale };
+        }),
+    );
+
+    out.push({ pageIndex: p - 1, scale, w: W, h: H, layers, images, blocks, original, background, report, styles });
     page.cleanup();
   }
   return out;

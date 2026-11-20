@@ -81,7 +81,20 @@ export interface DesignBlock {
    * edited text keeps rendering in the design's own typeface instead of
    * falling back to the app's UI font. Undefined falls back to the app font. */
   fontFamily?: string;
+  /** PDF path: the PDF text style (pdf.js font, see styleKeyOf) of the
+   * block's first run — the key the page's detected design fonts are
+   * stored under (pages.design_fonts.styles). */
+  styleKey?: string;
 }
+
+/**
+ * A PDF text style: the pdf.js font name without its per-load document
+ * number ("g_d3_f2" → "f2", so the same PDF gives the same key every time)
+ * and the type size in points. The size matters: a Figma PDF packs glyphs
+ * of several fonts and weights into one pdf.js font (a heading in ExtraBold
+ * and body text in Regular can share "f1"), and those come at different sizes.
+ */
+export const styleKeyOf = (fontName: string, sizePt: number) => `${fontName.replace(/^g_d\d+_/, "")}@${Math.round(sizePt)}`;
 
 // ── Small helpers (ported verbatim) ──────────────────────────────────────
 
@@ -199,6 +212,7 @@ interface RawItem {
   fontH: number;
   text: string;
   fontFamily?: string;
+  styleKey?: string;
 }
 
 interface Line {
@@ -214,6 +228,7 @@ interface Segment {
   fontH: number;
   text: string;
   fontFamily?: string;
+  styleKey?: string;
 }
 
 interface Paragraph {
@@ -258,6 +273,7 @@ const toSegment = (group: RawItem[], byGap = false): Segment | null => {
     fontH: Math.max(...group.map((o) => o.fontH)),
     text,
     fontFamily: group[0].fontFamily,
+    styleKey: group[0].styleKey,
   };
 };
 
@@ -325,7 +341,7 @@ export function buildBlocks(
     if (fontH < 4) continue;
     const fontName = (it as PdfTextItem).fontName as string | undefined;
     const fontFamily = fontName ? styles[fontName]?.fontFamily : undefined;
-    raw.push({ x: tx[4], baseline: tx[5], w: it.width * scale, fontH, text: it.str, fontFamily });
+    raw.push({ x: tx[4], baseline: tx[5], w: it.width * scale, fontH, text: it.str, fontFamily, styleKey: fontName ? styleKeyOf(fontName, fontH / scale) : undefined });
   }
   raw.sort((a, b) => a.baseline - b.baseline || a.x - b.x);
 
@@ -442,6 +458,7 @@ export function buildBlocks(
       dark: luminance(bg) < 0.5,
       kind: size >= 30 ? "heading" : size >= 22 ? "subhead" : size >= 17 ? "lead" : "body",
       fontFamily: first.fontFamily,
+      styleKey: first.styleKey,
       color: ink ? `rgb(${ink.color.join(",")})` : undefined,
       weight: ink ? stemWeight(ink.stem / fontH) : undefined,
       wrap: multi || undefined,

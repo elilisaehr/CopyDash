@@ -11,6 +11,7 @@ import { extractPdfText } from "@/lib/pdf";
 import { formatDate } from "@/lib/format";
 import { planLimitError } from "@/lib/plan";
 import { createPage, type NewPageData } from "@/lib/create-page";
+import { useFontStep } from "@/components/features/font-step";
 import { PlanLimitNotice } from "@/components/features/plan-limit-notice";
 import { ProjectPeoplePanel } from "@/components/features/project-people";
 import type { ProjectPeople } from "@/lib/people";
@@ -47,6 +48,7 @@ export function PagesListScreen({
   const [creatingPage, setCreatingPage] = React.useState(false);
   // Steps of the PDF rebuild (lib/pdf-rebuild-store), shown while the page is prepared.
   const [progress, setProgress] = React.useState<string | null>(null);
+  const fontStep = useFontStep();
   const [error, setError] = React.useState<string | null>(null);
   const [renamingPage, setRenamingPage] = React.useState<Page | null>(null);
 
@@ -83,7 +85,7 @@ export function PagesListScreen({
     setError(null);
     try {
       setProgress(null);
-      const pageId = await createPage(project.id, data, setProgress);
+      const pageId = await createPage(project.id, data, setProgress, fontStep.ask);
       router.push(`/projects/${project.id}/pages/${pageId}`);
       router.refresh();
     } catch (e) {
@@ -94,6 +96,7 @@ export function PagesListScreen({
 
   return (
     <>
+      {fontStep.element}
       <PageHeader
         title={project.name}
         subtitle={project.company || undefined}

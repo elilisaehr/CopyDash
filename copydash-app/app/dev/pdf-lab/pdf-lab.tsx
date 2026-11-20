@@ -8,8 +8,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { DesignPage, type StackPiece } from "@/components/features/design-page";
 import { EditableBlock } from "@/components/features/editable-block";
 import { checkText, compareWords, type TextCheck } from "./text-check";
-import { FONT_NAMES, cssFamily, useDesignFonts } from "@/lib/design-fonts";
-import { debugCompare, detectFonts, loadCandidates, pickSamples, type StyleResult, type StyleSample } from "./font-detect";
+import { FONT_NAMES, cssFamily, useDesignFonts, withFont, type DesignFonts } from "@/lib/design-fonts";
+import { detectPdfFonts, type DetectedStyle } from "@/lib/font-detect";
+import { FontStep } from "@/components/features/font-step";
+import { Modal } from "@/components/ui/primitives";
 
 // Local test bench for PDF → reconstructed page. Runs one PDF or every
 // reference PDF (~/Desktop/Test, served by ./files), and scores each page:
@@ -30,7 +32,6 @@ interface PageResult {
   pct: number;
   piecesPct: number;
   words: { missing: string[]; extra: string[] };
-  styles: StyleSample[];
 }
 
 interface DocResult {
@@ -50,6 +51,7 @@ function EditorPreview({
   check,
   showIssues,
   font,
+  designFonts,
   onCheck,
 }: {
   pg: ReconstructedPage;
@@ -60,6 +62,8 @@ function EditorPreview({
   showIssues: boolean;
   /** A design font picked for the whole page (as the editor's Fonts panel does). */
   font: string;
+  /** Fonts detected for the document, applied as the editor does (lib/design-fonts withFont). */
+  designFonts?: DesignFonts | null;
   onCheck: (pageIndex: number, c: TextCheck) => void;
 }) {
   const k = Math.min(1, 900 / pg.w);
@@ -93,9 +97,9 @@ function EditorPreview({
       w: Math.round(pg.w * k),
       h: Math.round(pg.h * k),
       url: background,
-      blocks: pg.blocks.map((b) => ({ ...scaleBlock(b, k), ...(font ? { fontFamily: cssFamily(font) } : {}) })),
+      blocks: pg.blocks.map((b) => (font ? { ...scaleBlock(b, k), fontFamily: cssFamily(font) } : withFont(designFonts, scaleBlock(b, k)))),
     }),
-    [pg, k, background, font],
+    [pg, k, background, font, designFonts],
   );
   const onChange = React.useCallback((id: string, text: string) => setEdits((e) => ({ ...e, [id]: text })), []);
 
@@ -104,14 +108,14 @@ function EditorPreview({
     let cancelled = false;
     (async () => {
       await document.fonts.ready;
-      await new Promise((r) => setTimeout(r, font ? 1500 : 400)); // a picked font loads from Google first
+      await new Promise((r) => setTimeout(r, font || designFonts ? 2500 : 400)); // picked fonts load from Google first
       if (cancelled || !pageRef.current) return;
       onCheck(pg.pageIndex, checkText(pg, pageRef.current, k));
     })();
     return () => {
       cancelled = true;
     };
-  }, [pg, k, onCheck, font]);
+  }, [pg, k, onCheck, font, designFonts]);
 
   React.useEffect(() => {
     if (overlay !== "blink") return;
@@ -255,23 +259,13 @@ async function asSaved(c: HTMLCanvasElement) {
 }
 
 /** The PDF's text layer, one string per page (items joined as the reader would). */
-async function pdfText(data: ArrayBuffer, scales: number[]): Promise<{ texts: string[]; styles: StyleSample[][] }> {
+async function pdfText(data: ArrayBuffer): Promise<string[]> {
   const pdfjs = await getPdfjs();
   const doc = await pdfjs.getDocument({ data }).promise;
   const out: string[] = [];
-  const styles: StyleSample[][] = [];
   for (let p = 1; p <= doc.numPages; p++) {
     const page = await doc.getPage(p);
     const tc = await page.getTextContent();
-    // Text runs in page px, grouped by pdf.js font, for font detection.
-    const vp = page.getViewport({ scale: scales[p - 1] || 1 });
-    const geo = tc.items.flatMap((it) => {
-      if (!("str" in it) || !it.str.trim()) return [];
-      const m = pdfjs.Util.transform(vp.transform, it.transform);
-      const rotated = Math.abs(it.transform[1]) > 0.01 * Math.abs(it.transform[0]) || Math.abs(it.transform[2]) > 0.01 * Math.abs(it.transform[3]);
-      return [{ str: it.str, fontName: it.fontName, x: m[4], baseline: m[5], fontH: Math.hypot(m[2], m[3]), w: it.width * vp.scale, rotated }];
-    });
-    styles.push(pickSamples(geo));
     let s = "";
     let prevEnd: number | null = null;
     let prevY = 0;
@@ -292,14 +286,14 @@ async function pdfText(data: ArrayBuffer, scales: number[]): Promise<{ texts: st
     page.cleanup();
   }
   await doc.loadingTask.destroy();
-  return { texts: out, styles };
+  return out;
 }
 
 async function runDoc(name: string, buf: ArrayBuffer, onStatus: (s: string) => void): Promise<DocResult> {
   const t = performance.now();
   const pdfjs = await getPdfjs();
   const pages = await reconstructPdf(pdfjs, buf.slice(0), scaleFor, (msg) => onStatus(`${name}: ${msg}`));
-  const { texts, styles } = await pdfText(buf.slice(0), pages.map((p) => p.scale));
+  const texts = await pdfText(buf.slice(0));
   const ms = Math.round(performance.now() - t);
   const res: PageResult[] = await Promise.all(
     pages.map(async (pg) => {
@@ -313,7 +307,6 @@ async function runDoc(name: string, buf: ArrayBuffer, onStatus: (s: string) => v
         pct: m.pct,
         piecesPct: mismatch(pg.original, flattenPage(pg), pg).pct,
         words: compareWords([texts[pg.pageIndex] || ""], pg.blocks.map((b) => b.text)),
-        styles: styles[pg.pageIndex] || [],
       };
     }),
   );
@@ -371,24 +364,34 @@ export function PdfLab() {
   const [showIssues, setShowIssues] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
   const [font, setFont] = React.useState("");
-  const [fonts, setFonts] = React.useState<Record<string, StyleResult[]>>({});
+  const [fonts, setFonts] = React.useState<Record<string, DetectedStyle[]>>({});
+  const [applyFonts, setApplyFonts] = React.useState(true);
+  const [stepOpen, setStepOpen] = React.useState(false);
+  // What the import would save: the detected font of each style.
+  const designFontsOf = (name: string): DesignFonts | null => {
+    const list = fonts[name];
+    if (!list) return null;
+    return { styles: Object.fromEntries(list.filter((d) => d.best).map((d) => [d.key, { family: d.best!.family, weight: d.best!.weight }])) };
+  };
   const runFontDetect = async () => {
     setBusy(true);
     const t = performance.now();
-    const cands = await loadCandidates(setStatus);
-    const out: Record<string, StyleResult[]> = {};
+    const out: Record<string, DetectedStyle[]> = {};
     for (const d of docs) {
-      for (const p of d.pages) {
-        setStatus(`Detecting fonts: ${d.name}…`);
-        out[`${d.name}#${p.pg.pageIndex + 1}`] = await detectFonts(p.pg, p.styles, cands);
-        setFonts({ ...out });
-      }
+      if (!d.pages.length) continue;
+      out[d.name] = await detectPdfFonts(
+        d.pages.map((p) => p.pg),
+        (m) => setStatus(`${d.name}: ${m}`),
+      );
+      setFonts({ ...out });
     }
     (window as unknown as { __labFonts: unknown }).__labFonts = out;
-    setStatus(`Fonts detected (${cands.length} candidate families) in ${Math.round((performance.now() - t) / 1000)} s`);
+    setStatus(`Fonts detected in ${Math.round((performance.now() - t) / 1000)} s`);
     setBusy(false);
   };
   useDesignFonts(font ? { heading: font, body: font } : null);
+  const selFonts = applyFonts && docs[sel] ? designFontsOf(docs[sel].name) : null;
+  useDesignFonts(selFonts);
   const waiting = React.useRef<{ key: string; pages: number; done: () => void } | null>(null);
   const checksRef = React.useRef(checks);
   React.useEffect(() => {
@@ -503,14 +506,6 @@ export function PdfLab() {
           };
         }),
   );
-  // Font detection debug from the console: __fontDebug(doc, style, line, family, weight).
-  React.useEffect(() => {
-    (window as unknown as { __fontDebug: unknown }).__fontDebug = (di: number, si: number, li: number, family: string, weight: number) => {
-      const p = docsRef.current[di]?.pages[0];
-      const l = p?.styles[si]?.lines[li];
-      return p && l ? debugCompare(p.pg, l, family, weight) : null;
-    };
-  }, []);
   // pdf.js itself, for experiments from the console.
   React.useEffect(() => {
     getPdfjs().then((p) => ((window as unknown as { __pdfjs: unknown }).__pdfjs = p));
@@ -559,22 +554,21 @@ export function PdfLab() {
 
       {Object.keys(fonts).length > 0 && (
         <div id="lab-fonts" style={{ margin: "12px 0" }}>
-          <b>Font detection</b> (best weight per family; score = shape overlap − ½ width error)
-          {Object.entries(fonts).map(([key, list]) => (
-            <div key={key} style={{ marginTop: 8 }}>
-              <div style={{ fontWeight: 600 }}>{key}</div>
+          <b>Font detection</b> (lib/font-detect, as at import — shape overlap 0–1)
+          {Object.entries(fonts).map(([name, list]) => (
+            <div key={name} style={{ marginTop: 8 }}>
+              <div style={{ fontWeight: 600 }}>{name}</div>
               <table style={{ borderCollapse: "collapse", fontSize: 12 }}>
                 <tbody>
                   {list.map((st) => (
-                    <tr key={st.fontName}>
+                    <tr key={st.key}>
                       <td style={cell}>
-                        “{st.sample}” · {st.size}pt
+                        “{st.sample?.text.slice(0, 30) ?? "—"}” · {st.sample ? Math.round(st.sample.size) : "?"}pt · {st.chars} chars
                       </td>
-                      {st.matches.slice(0, 5).map((m, i) => (
-                        <td key={m.family} style={{ ...cell, fontWeight: i === 0 ? 700 : 400 }}>
-                          {m.family} {m.weight} <span style={{ color: "#888" }}>{m.score.toFixed(3)}</span>
-                        </td>
-                      ))}
+                      <td style={{ ...cell, fontWeight: 700 }}>
+                        {st.best ? `${st.best.family} ${st.best.weight}` : "—"} <span style={{ color: "#888" }}>{st.best?.shape.toFixed(3)}</span> · {st.confidence}
+                      </td>
+                      <td style={{ ...cell, color: "#666" }}>{st.alternatives.slice(0, 3).map((a) => `${a.family} ${a.shape.toFixed(2)}`).join(" · ")}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -642,6 +636,28 @@ export function PdfLab() {
         </>
       )}
 
+      {doc && fonts[doc.name] && (
+        <Modal open={stepOpen} onClose={() => setStepOpen(false)} title="Design fonts" width={720}>
+          {stepOpen && (
+            <FontStep
+              styles={fonts[doc.name].map((d) => ({
+                key: d.key,
+                family: d.best?.family ?? null,
+                weight: d.best?.weight ?? 400,
+                confidence: d.confidence,
+                alternatives: d.alternatives.map((a) => a.family),
+                sample: d.sample,
+                chars: d.chars,
+              }))}
+              onConfirm={(r) => {
+                (window as unknown as { __labStep: unknown }).__labStep = r;
+                setStepOpen(false);
+              }}
+              onSkip={() => setStepOpen(false)}
+            />
+          )}
+        </Modal>
+      )}
       {doc && (
         <>
           <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", margin: "8px 0", position: "sticky", top: 0, background: "#fff", padding: "8px 0", zIndex: 5 }}>
@@ -676,6 +692,16 @@ export function PdfLab() {
                 ))}
               </select>
             </label>
+            {fonts[doc.name] && (
+              <button id="lab-font-step" onClick={() => setStepOpen(true)} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #7f22fe", background: "#fff", color: "#7f22fe", cursor: "pointer" }}>
+                Import step
+              </button>
+            )}
+            {fonts[doc.name] && (
+              <label style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                <input id="lab-apply-fonts" type="checkbox" checked={applyFonts} onChange={(e) => setApplyFonts(e.target.checked)} /> Detected fonts
+              </label>
+            )}
             <label style={{ display: "flex", gap: 4, alignItems: "center" }}>
               <input type="checkbox" checked={showIssues} onChange={(e) => setShowIssues(e.target.checked)} /> Outline text issues
             </label>
@@ -734,6 +760,7 @@ export function PdfLab() {
                   check={c}
                   showIssues={showIssues}
                   font={font}
+                  designFonts={selFonts}
                   onCheck={onCheck}
                 />
                 {c && c.blocks.some((b) => b.issues.length) && (

@@ -11,6 +11,7 @@ import { Btn, FieldInput, Spinner } from "@/components/ui/primitives";
 import { AddPageForm } from "@/components/screens/pages-list-screen";
 import { createClient } from "@/lib/supabase/client";
 import { createPage, type NewPageData } from "@/lib/create-page";
+import { useFontStep } from "@/components/features/font-step";
 import { planLimitError } from "@/lib/plan";
 
 const STEPS = ["Your workspace", "First project", "First page"] as const;
@@ -37,6 +38,7 @@ export function OnboardingScreen({
   const [busy, setBusy] = React.useState(false);
   // Steps of the PDF rebuild (lib/pdf-rebuild-store), shown while the page is prepared.
   const [progress, setProgress] = React.useState<string | null>(null);
+  const fontStep = useFontStep();
   const [error, setError] = React.useState<string | null>(null);
 
   const fail = (e: unknown, fallback: string) => {
@@ -80,7 +82,7 @@ export function OnboardingScreen({
     setError(null);
     setProgress(null);
     try {
-      const pageId = await createPage(projectId, data, setProgress);
+      const pageId = await createPage(projectId, data, setProgress, fontStep.ask);
       router.push(`/projects/${projectId}/pages/${pageId}`);
     } catch (e) {
       fail(e, "Couldn’t create the page. Please try again.");
@@ -91,6 +93,7 @@ export function OnboardingScreen({
 
   return (
     <div style={{ minHeight: "100vh", background: "#f7f9fb", display: "flex", flexDirection: "column", alignItems: "center", padding: "48px 16px" }}>
+      {fontStep.element}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 32 }}>
         <div style={{ width: 32, height: 32, borderRadius: 10, background: "#7f22fe", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <Icon name="gallery-vertical-end" size={16} color="#fff" />

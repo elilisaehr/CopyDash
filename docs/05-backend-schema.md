@@ -101,7 +101,7 @@ PK: `(project_id, user_id)`.
 | has_pdf_design | boolean | yes | `false` |
 | design_source | text, check in (`pdf`,`pdf_html`,`figma`) — `pdf_html`: PDF rebuilt into layers/pictures/live text (since 0010); `pdf`: older PDF pages, image + text overlay | no | null |
 | design_seed | text | no | — |
-| design_fonts | jsonb `{heading, body}` — Google Fonts names the PM picked for a PDF design (migration `0006`) | no | null |
+| design_fonts | jsonb `{heading, body, styles?, files?}` — design fonts of a PDF page (migration `0006`). `heading`/`body`: Google Fonts names picked in the editor. Rebuilt PDF pages: `styles` = `{[styleKey]: {family, weight?}}`, the font of each PDF text style (blocks carry `styleKey`), recognised at import and confirmed by the user; `files` = `{[family]: path}` font files uploaded by the agency to `pdfs/<project>/fonts/<file>` (existing project-folder policies: PMs/editors write, members read). No migration: same jsonb column. | no | null |
 | updated_by_name | text | no | — |
 | archived_at | timestamptz | no | null |
 | created_at / updated_at | timestamptz | yes | `now()` |
