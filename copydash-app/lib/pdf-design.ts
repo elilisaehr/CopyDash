@@ -365,7 +365,11 @@ export function buildBlocks(
     for (let i = 1; i < its.length; i++) {
       const prev = group[group.length - 1];
       const gap = its[i].x - (prev.x + prev.w);
-      if (gap > Math.max(16 * scale, Math.min(prev.fontH, its[i].fontH) * 2)) {
+      // Rebuilt pages: 1.2 em — a word space stays under ~0.5 em even when
+      // justified, and big display figures in columns ("240+ 412 5m+")
+      // can sit only ~1.4 em apart. Legacy pages keep 2 em (same block ids).
+      const colGap = joinRunsByGap ? 1.2 : 2;
+      if (gap > Math.max(16 * scale, Math.min(prev.fontH, its[i].fontH) * colGap)) {
         pushSegment(group);
         group = [its[i]];
       } else group.push(its[i]);
