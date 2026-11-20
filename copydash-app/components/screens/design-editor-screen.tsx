@@ -21,7 +21,9 @@ import { CommentButton } from "@/components/features/comments";
 import { computeSEO, SEOToggle, SEOPanel } from "@/components/features/seo";
 import { AISuggestButton } from "@/components/features/ai-suggest";
 import { EditableBlock } from "@/components/features/editable-block";
-import { DesignPage, type BlockFlowInfo, type StackPiece } from "@/components/features/design-page";
+import { DesignPage, type BlockFlowInfo, type StackBox, type StackPiece } from "@/components/features/design-page";
+import { PhotoOverlay, type OverlayPhoto } from "@/components/features/photo-overlay";
+import { coverBox, croppedBox, deletePhotoEdit, downloadPhoto, loadPhotoEdits, savePhotoEdit, uploadPhoto, type PhotoEdit } from "@/lib/pdf-photos";
 import { mockGenerateFieldSuggestions } from "@/lib/ai-mock";
 import { getPdfjs } from "@/lib/pdf";
 import { PdfPasswordError, loadBackgrounds, loadPieces, loadRebuildModel, rebuildPdf, rebuildToRendered, saveRebuild, type LoadedPiece, type StoredModel } from "@/lib/pdf-rebuild-store";
@@ -304,14 +306,198 @@ export function DesignEditorScreen({
     if (rebuild.model.pages.length) handleNaturalWidth(rebuild.model.pages[0].w);
   }, [rebuild, scale, handleNaturalWidth]);
 
-  // The pieces at the live zoom, per page, in the shape DesignPage draws.
-  const stacks = React.useMemo(() => {
-    if (!pieces) return null;
-    const sc = (b: [number, number, number, number]): [number, number, number, number] => [b[0] * scale, b[1] * scale, b[2] * scale, b[3] * scale];
-    return pieces.map((page): StackPiece[] =>
-      page.map((p) => (p.kind === "vector" ? { kind: "vector", img: p.img, box: sc(p.box) } : { kind: "image", img: p.img, box: sc(p.box), frame: sc(p.frame), radius: p.radius * scale, opacity: p.opacity })),
-    );
-  }, [pieces, scale]);
+  // ── Photos of a rebuilt page: replace a picture, crop / zoom it (lib/pdf-photos) ──
+  const [photoEdits, setPhotoEdits] = React.useState<Record<string, PhotoEdit>>({});
+  const [photoImgs, setPhotoImgs] = React.useState<Record<string, HTMLImageElement>>({});
+  const [selectedPhoto, setSelectedPhoto] = React.useState<string | null>(null);
+  const [photoBusy, setPhotoBusy] = React.useState<string | null>(null);
+  // The crop being adjusted, shown live, saved on Done.
+  const [cropDraft, setCropDraft] = React.useState<PhotoEdit | null>(null);
+  const photoFileRef = React.useRef<HTMLInputElement>(null);
+  const photoTarget = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    if (!isRebuild) return;
+    let cancelled = false;
+    loadPhotoEdits(createClient(), page.id)
+      .then((e) => !cancelled && setPhotoEdits(e))
+      .catch((e) => console.warn("Photo edits load failed", e));
+    return () => {
+      cancelled = true;
+    };
+  }, [isRebuild, page.id, rebuildVersion]);
+
+  const liveEdits = React.useMemo(() => (cropDraft ? { ...photoEdits, [cropDraft.piece]: cropDraft } : photoEdits), [photoEdits, cropDraft]);
+
+  // The picture's layer in the model, and the file an edit draws in it.
+  const layerOf = React.useCallback(
+    (piece: string) => {
+      const [pi, li] = piece.split(":").map(Number);
+      const pg = rebuild?.model.pages[pi];
+      const l = pg?.layers[li];
+      return pg && l?.kind === "image" ? { layer: l, path: (e: PhotoEdit) => e.path ?? pg.images[l.src] } : null;
+    },
+    [rebuild],
+  );
+
+  // Download the files the edits need (each once).
+  const photoUrls = React.useRef<string[]>([]);
+  const photoLoading = React.useRef<Set<string>>(new Set());
+  React.useEffect(() => {
+    const supabase = createClient();
+    for (const e of Object.values(liveEdits)) {
+      const path = layerOf(e.piece)?.path(e);
+      if (!path || photoImgs[path] || photoLoading.current.has(path)) continue;
+      photoLoading.current.add(path);
+      downloadPhoto(supabase, path)
+        .then(({ img, url }) => {
+          photoUrls.current.push(url);
+          setPhotoImgs((m) => ({ ...m, [path]: img }));
+        })
+        .catch((err) => console.warn("Photo download failed", err))
+        .finally(() => photoLoading.current.delete(path));
+    }
+  }, [liveEdits, layerOf, photoImgs]);
+  React.useEffect(() => () => photoUrls.current.forEach((u) => URL.revokeObjectURL(u)), []);
+
+  /** Where an edit puts its image (PDF points), with the pan kept over the frame; null until its file is loaded. */
+  const placeEdit = React.useCallback(
+    (e: PhotoEdit) => {
+      const found = layerOf(e.piece);
+      const path = found?.path(e);
+      const img = path ? photoImgs[path] : undefined;
+      if (!found || !img) return null;
+      const { layer } = found;
+      const base = e.path ? coverBox(layer.frame, img.naturalWidth, img.naturalHeight) : layer.box;
+      return { img, layer, ...croppedBox(base, layer.frame, e.zoom, e.dx, e.dy) };
+    },
+    [layerOf, photoImgs],
+  );
+
+  // The pieces at the live zoom, per page, in the shape DesignPage draws —
+  // edited pictures drawn from their new file / crop — and the frames to redraw.
+  const { stacks, patches, photoFrames } = React.useMemo(() => {
+    if (!pieces) return { stacks: null, patches: null, photoFrames: null };
+    const sc = (b: [number, number, number, number]): StackBox => [b[0] * scale, b[1] * scale, b[2] * scale, b[3] * scale];
+    const stacks: StackPiece[][] = [];
+    const patches: StackBox[][] = [];
+    const photoFrames: OverlayPhoto[][] = [];
+    for (const page of pieces) {
+      const st: StackPiece[] = [];
+      const pa: StackBox[] = [];
+      const ph: OverlayPhoto[] = [];
+      for (const p of page) {
+        if (p.kind === "vector") {
+          st.push({ kind: "vector", img: p.img, box: sc(p.box) });
+          continue;
+        }
+        const f = p.orig.frame;
+        // Photos big enough to aim at and visible (hidden carousel slides have no opacity).
+        if (f[2] - f[0] >= 16 && f[3] - f[1] >= 16 && p.orig.opacity > 0.05) ph.push({ piece: p.piece, frame: sc(f) });
+        const e = liveEdits[p.piece];
+        const placed = e ? placeEdit(e) : null;
+        if (!placed) {
+          st.push({ kind: "image", img: p.img, box: sc(p.box), frame: sc(p.frame), radius: p.radius * scale, opacity: p.opacity });
+          continue;
+        }
+        st.push({ kind: "image", img: placed.img, box: sc(placed.box), frame: sc(f), radius: p.orig.radius * scale, opacity: p.orig.opacity });
+        // Redraw both the frame and the area the original was baked into.
+        pa.push(sc([Math.min(f[0], p.frame[0]), Math.min(f[1], p.frame[1]), Math.max(f[2], p.frame[2]), Math.max(f[3], p.frame[3])]));
+      }
+      stacks.push(st);
+      patches.push(pa);
+      photoFrames.push(ph);
+    }
+    return { stacks, patches, photoFrames };
+  }, [pieces, scale, liveEdits, placeEdit]);
+
+  const savePhoto = React.useCallback(
+    async (piece: string, run: () => Promise<void>) => {
+      setPhotoBusy(piece);
+      setSaveStatus("saving");
+      try {
+        await run();
+        setSaveStatus("saved");
+        setTimeout(() => setSaveStatus("idle"), 2200);
+      } catch (e) {
+        setSaveStatus("idle");
+        console.warn("Photo save failed", e);
+        alert(e instanceof Error ? e.message : "The photo couldn't be saved. Try again.");
+      } finally {
+        setPhotoBusy(null);
+      }
+    },
+    [],
+  );
+
+  const onPhotoFile = async (file: File | null) => {
+    const piece = photoTarget.current;
+    photoTarget.current = null;
+    if (!file || !piece) return;
+    await savePhoto(piece, async () => {
+      const supabase = createClient();
+      const path = await uploadPhoto(supabase, project.id, page.id, piece, file);
+      const edit: PhotoEdit = { piece, path, zoom: 1, dx: 0, dy: 0 };
+      await savePhotoEdit(supabase, page.id, edit);
+      setPhotoEdits((m) => ({ ...m, [piece]: edit }));
+    });
+  };
+
+  const resetPhoto = (piece: string) =>
+    savePhoto(piece, async () => {
+      await deletePhotoEdit(createClient(), page.id, piece);
+      setPhotoEdits((m) => {
+        const n = { ...m };
+        delete n[piece];
+        return n;
+      });
+    });
+
+  // Crop: pan in page px → PDF points; zoom and pan kept so the image covers its frame.
+  const adjustCrop = React.useCallback(
+    (change: (d: PhotoEdit) => PhotoEdit) =>
+      setCropDraft((d) => {
+        if (!d) return d;
+        const next = change(d);
+        const placed = placeEdit(next);
+        return placed ? { ...next, dx: placed.dx, dy: placed.dy } : next;
+      }),
+    [placeEdit],
+  );
+
+  const finishCrop = async () => {
+    const d = cropDraft;
+    if (!d) return;
+    setCropDraft(null);
+    const unchanged = d.path === null && d.zoom === 1 && Math.abs(d.dx) < 0.01 && Math.abs(d.dy) < 0.01;
+    const before = photoEdits[d.piece];
+    if (unchanged && !before) return;
+    if (before && before.path === d.path && before.zoom === d.zoom && before.dx === d.dx && before.dy === d.dy) return;
+    // Show the result right away; the save follows.
+    setPhotoEdits((m) => {
+      const n = { ...m };
+      if (unchanged) delete n[d.piece];
+      else n[d.piece] = d;
+      return n;
+    });
+    await savePhoto(d.piece, async () => {
+      if (unchanged) await deletePhotoEdit(createClient(), page.id, d.piece);
+      else await savePhotoEdit(createClient(), page.id, d);
+    });
+  };
+
+  const cropState = React.useMemo(() => {
+    if (!cropDraft) return null;
+    const placed = placeEdit(cropDraft);
+    const box = placed?.box;
+    return {
+      piece: cropDraft.piece,
+      zoom: cropDraft.zoom,
+      preview: placed && box ? { url: placed.img.src, box: [box[0] * scale, box[1] * scale, box[2] * scale, box[3] * scale] as StackBox } : undefined,
+    };
+  }, [cropDraft, placeEdit, scale]);
+
+  const editedPhotos = React.useMemo(() => new Set(Object.keys(photoEdits)), [photoEdits]);
 
   const report = React.useMemo(
     () => (rebuild ? rebuild.model.pages.flatMap((p, i) => p.report.map((r) => ({ ...r, page: i + 1 }))) : []),
@@ -597,6 +783,9 @@ export function DesignEditorScreen({
         if (!rebuilt) throw new Error("Rebuild failed");
         await saveRebuild(supabase, project.id, page.id, rebuilt, setRebuildProgress);
         setPieces(null);
+        setPhotoEdits({});
+        setSelectedPhoto(null);
+        setCropDraft(null);
         setRebuildVersion((v) => v + 1);
       } catch (e) {
         // Keep the page usable with the older image editor.
@@ -629,6 +818,7 @@ export function DesignEditorScreen({
         /* ignore */
       }
       setPieces(null);
+      setPhotoEdits({});
       setDesignSource("pdf_html");
     } catch (e) {
       console.warn("PDF rebuild retry failed", e);
@@ -962,6 +1152,19 @@ export function DesignEditorScreen({
                   <div style={{ fontSize: 12, maxWidth: 280, fontFamily: "var(--font-body)" }}>The PDF couldn&apos;t be loaded. Ask the project manager to re-upload the design.</div>
                 </div>
               )}
+              {isRebuild && (
+                <input
+                  ref={photoFileRef}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: "none" }}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] || null;
+                    e.target.value = "";
+                    onPhotoFile(f);
+                  }}
+                />
+              )}
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 28, padding: "32px 24px 80px" }}>
                 {pages.map((pg) => (
                   <DesignPage
@@ -973,6 +1176,35 @@ export function DesignEditorScreen({
                     onFlow={onFlow}
                     liveText={isRebuild}
                     stack={isRebuild ? stacks?.[pg.pageIndex] : undefined}
+                    patches={isRebuild ? patches?.[pg.pageIndex] : undefined}
+                    renderOverlay={
+                      isRebuild && editable && photoFrames?.[pg.pageIndex]?.length
+                        ? (shiftAt) => (
+                            <PhotoOverlay
+                              photos={photoFrames[pg.pageIndex]}
+                              shiftAt={shiftAt}
+                              selected={selectedPhoto}
+                              edited={editedPhotos}
+                              busy={photoBusy}
+                              crop={cropState}
+                              onSelect={(piece) => {
+                                setSelectedPhoto(piece);
+                                if (piece) setActiveId(null);
+                              }}
+                              onReplace={(piece) => {
+                                photoTarget.current = piece;
+                                photoFileRef.current?.click();
+                              }}
+                              onStartCrop={(piece) => setCropDraft(photoEdits[piece] ?? { piece, path: null, zoom: 1, dx: 0, dy: 0 })}
+                              onReset={resetPhoto}
+                              onPan={(dx, dy) => adjustCrop((d) => ({ ...d, dx: d.dx + dx / scale, dy: d.dy + dy / scale }))}
+                              onZoom={(zoom) => adjustCrop((d) => ({ ...d, zoom }))}
+                              onCropDone={finishCrop}
+                              onCropCancel={() => setCropDraft(null)}
+                            />
+                          )
+                        : undefined
+                    }
                     renderBlock={(b, layout) => (
                       <EditableBlock
                         key={b.id}

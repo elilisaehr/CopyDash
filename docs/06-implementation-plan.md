@@ -84,6 +84,8 @@ Stored as a JSON "document model" (new table, one row per page) + files in the e
 
 **Known limits left:** single-line text over a photo can't widen past its original width (free space is read from the image, a photo stops it); links and underlines aren't kept as such yet (HTML export step); the tab is busy for a few seconds during the split.
 
+**Step 2 — photos (built 2026-11-20 on `feat/pdf-to-html`, not committed):** migration `0011_pdf_photos.sql` (applied on dev; prod at release, backward compatible), `lib/pdf-photos.ts` (load/save, upload resized to ≤2400 px, cover-fit and crop geometry), `components/features/photo-overlay.tsx` (outline, Replace / Crop / Reset toolbar, drag + zoom slider). Display: with no text grown, the page stays the exact background and only the frames of changed photos are redrawn from the pieces (paint order kept); when text grows, the edited photos are part of the piece-by-piece redraw. Old uploaded files are not deleted from Storage when a photo is replaced again (contributors can't delete files) — clean-up later.
+
 **Steps (in order)**
 1. **Extraction + display + report** — import → extract → save → show the rebuilt page in the editor (background, images, live editable text; longer text pushes the content below down, as today) and the conversion report. Starts with a feasibility test on real PDFs (incl. the Fondation Borel one) before building the screens.
 2. **Images** — replace an image (upload) and crop/zoom it in its frame.
