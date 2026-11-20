@@ -69,7 +69,7 @@ function pdfInk(
     if (left >= 0) rows.push({ y, left, right });
   }
   // Rows with ink, grouped; small gaps (the dot of an i) don't split a line.
-  const gap = Math.max(1, b.fontH * 0.12);
+  const gap = Math.max(1, b.fontH * 0.05);
   const bands: Line[] = [];
   for (const r of rows) {
     const last = bands[bands.length - 1];

@@ -224,8 +224,32 @@ interface Paragraph {
 
 const joinText = (parts: string[]) => parts.join(" ").replace(/\s+/g, " ").trim();
 
-const toSegment = (group: RawItem[]): Segment | null => {
-  const text = joinText(group.map((o) => o.text));
+// Join a line's text runs as they sit on the page: a space only where
+// there's a gap. A PDF often cuts a word into several runs
+// ("conserv" + "ation", at a kerning or style change); a blind space
+// would split the word.
+const joinByGap = (group: RawItem[]) => {
+  let s = "";
+  for (let i = 0; i < group.length; i++) {
+    const o = group[i];
+    if (i > 0 && !/\s$/.test(s) && !/^\s/.test(o.text)) {
+      const prev = group[i - 1];
+      const gap = o.x - (prev.x + prev.w);
+      const em = Math.min(prev.fontH, o.fontH);
+      // Pieces of one word touch or overlap a little (Figma's last letters
+      // often start before the previous run's end, by up to ~1 em); a word
+      // space is ~0.25 em, and still > 0.05 em next to a larger word. A run
+      // starting before the middle of the previous one is a separate text
+      // laid on the same line.
+      if (gap > em * 0.05 || o.x < prev.x + prev.w / 2) s += " ";
+    }
+    s += o.text;
+  }
+  return s.replace(/\s+/g, " ").trim();
+};
+
+const toSegment = (group: RawItem[], byGap = false): Segment | null => {
+  const text = byGap ? joinByGap(group) : joinText(group.map((o) => o.text));
   if (!text) return null;
   return {
     x: Math.min(...group.map((o) => o.x)),
@@ -286,6 +310,11 @@ export function buildBlocks(
   pageIndex: number,
   ctx: CanvasRenderingContext2D,
   transformFn: MatrixTransformFn,
+  /** Join text runs by their gaps instead of always with a space. Only for
+   * the rebuilt pages, whose blocks are saved once at import: the legacy
+   * PDF pages recompute their blocks on every load, and a changed text
+   * would change the id their saved edits are keyed by. */
+  joinRunsByGap = false,
 ): DesignBlock[] {
   const scale = viewport.scale;
   const raw: RawItem[] = [];
@@ -327,7 +356,7 @@ export function buildBlocks(
   // typical column gutter.
   const segments: Segment[] = [];
   const pushSegment = (group: RawItem[]) => {
-    const s = toSegment(group);
+    const s = toSegment(group, joinRunsByGap);
     if (s) segments.push(s);
   };
   for (const L of lines) {

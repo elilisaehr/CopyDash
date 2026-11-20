@@ -8,6 +8,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { DesignPage, type StackPiece } from "@/components/features/design-page";
 import { EditableBlock } from "@/components/features/editable-block";
 import { checkText, compareWords, type TextCheck } from "./text-check";
+import { FONT_NAMES, cssFamily, useDesignFonts } from "@/lib/design-fonts";
 
 // Local test bench for PDF → reconstructed page. Runs one PDF or every
 // reference PDF (~/Desktop/Test, served by ./files), and scores each page:
@@ -46,6 +47,7 @@ function EditorPreview({
   opacity,
   check,
   showIssues,
+  font,
   onCheck,
 }: {
   pg: ReconstructedPage;
@@ -54,6 +56,8 @@ function EditorPreview({
   opacity: number;
   check?: TextCheck;
   showIssues: boolean;
+  /** A design font picked for the whole page (as the editor's Fonts panel does). */
+  font: string;
   onCheck: (pageIndex: number, c: TextCheck) => void;
 }) {
   const k = Math.min(1, 900 / pg.w);
@@ -87,9 +91,9 @@ function EditorPreview({
       w: Math.round(pg.w * k),
       h: Math.round(pg.h * k),
       url: background,
-      blocks: pg.blocks.map((b) => scaleBlock(b, k)),
+      blocks: pg.blocks.map((b) => ({ ...scaleBlock(b, k), ...(font ? { fontFamily: cssFamily(font) } : {}) })),
     }),
-    [pg, k, background],
+    [pg, k, background, font],
   );
   const onChange = React.useCallback((id: string, text: string) => setEdits((e) => ({ ...e, [id]: text })), []);
 
@@ -98,14 +102,14 @@ function EditorPreview({
     let cancelled = false;
     (async () => {
       await document.fonts.ready;
-      await new Promise((r) => setTimeout(r, 400));
+      await new Promise((r) => setTimeout(r, font ? 1500 : 400)); // a picked font loads from Google first
       if (cancelled || !pageRef.current) return;
       onCheck(pg.pageIndex, checkText(pg, pageRef.current, k));
     })();
     return () => {
       cancelled = true;
     };
-  }, [pg, k, onCheck]);
+  }, [pg, k, onCheck, font]);
 
   React.useEffect(() => {
     if (overlay !== "blink") return;
@@ -257,8 +261,17 @@ async function pdfText(data: ArrayBuffer): Promise<string[]> {
     const page = await doc.getPage(p);
     const tc = await page.getTextContent();
     let s = "";
+    let prevEnd: number | null = null;
+    let prevY = 0;
     for (const it of tc.items) {
       if (!("str" in it)) continue;
+      // A visible gap or a jump to another line or column is a word break.
+      const x = it.transform[4];
+      const y = it.transform[5];
+      const size = Math.hypot(it.transform[2], it.transform[3]) || 1;
+      if (prevEnd !== null && !/\p{L}-$/u.test(s) && (Math.abs(y - prevY) > size * 0.5 || x - prevEnd > size * 0.1 || x < prevEnd - size)) s += " ";
+      prevEnd = x + it.width;
+      prevY = y;
       s += it.str;
       // A line ending in a hyphen continues the word (as joinLines does).
       if (it.hasEOL) s += /\p{L}-$/u.test(s) ? "" : " ";
@@ -344,6 +357,8 @@ export function PdfLab() {
   const [opacity, setOpacity] = React.useState(0.5);
   const [showIssues, setShowIssues] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
+  const [font, setFont] = React.useState("");
+  useDesignFonts(font ? { heading: font, body: font } : null);
   const waiting = React.useRef<{ key: string; pages: number; done: () => void } | null>(null);
   const checksRef = React.useRef(checks);
   React.useEffect(() => {
@@ -415,8 +430,13 @@ export function PdfLab() {
     reset();
     const t = performance.now();
     try {
-      const { files, dir, error } = (await (await fetch("/dev/pdf-lab/files")).json()) as { files?: string[]; dir?: string; error?: string };
+      const list = (await (await fetch("/dev/pdf-lab/files")).json()) as { files?: string[]; dir?: string; error?: string };
+      const { dir, error } = list;
+      let { files } = list;
       if (!files) throw new Error(error || "No file list");
+      // ?only=GDS runs just the files whose name contains it.
+      const only = new URLSearchParams(window.location.search).get("only")?.toLowerCase();
+      if (only) files = files.filter((f) => f.toLowerCase().includes(only));
       for (const name of files) {
         setStatus(`${name}…`);
         const buf = await (await fetch(`/dev/pdf-lab/files?name=${encodeURIComponent(name)}`)).arrayBuffer();
@@ -573,6 +593,17 @@ export function PdfLab() {
             ))}
             {overlay === "fade" && <input type="range" min={0} max={1} step={0.05} value={opacity} onChange={(e) => setOpacity(+e.target.value)} />}
             <label style={{ display: "flex", gap: 4, alignItems: "center" }}>
+              Font:
+              <select id="lab-font" value={font} onChange={(e) => setFont(e.target.value)}>
+                <option value="">Default (as imported)</option>
+                {FONT_NAMES.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label style={{ display: "flex", gap: 4, alignItems: "center" }}>
               <input type="checkbox" checked={showIssues} onChange={(e) => setShowIssues(e.target.checked)} /> Outline text issues
             </label>
             <label style={{ display: "flex", gap: 4, alignItems: "center" }}>
@@ -629,6 +660,7 @@ export function PdfLab() {
                   opacity={opacity}
                   check={c}
                   showIssues={showIssues}
+                  font={font}
                   onCheck={onCheck}
                 />
                 {c && c.blocks.some((b) => b.issues.length) && (
