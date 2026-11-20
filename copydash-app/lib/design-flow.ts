@@ -5,7 +5,8 @@
 // everything below it moves down by the same amount — like a text element
 // in Webflow or Elementor pushing the rest of the page. The image is cut
 // horizontally at the bottom of each growing block and the gap is filled
-// by stretching one background row of the design (see DesignPage).
+// by stretching one background row of the design; a photo the cut runs
+// through is zoomed instead (see DesignPage).
 //
 // Pure geometry, no DOM: given each block's original box and how many px
 // taller it now renders, work out where everything goes.
@@ -19,6 +20,10 @@ export interface FlowInput {
   bottom: number;
   /** How many px taller the block now renders than its original text. */
   extra: number;
+  /** Where to cut the design when the block grows (default: its bottom). A
+   * rebuilt page cuts inside the block's last line, so the shape around the
+   * text (a button, a card) grows from its middle and keeps its padding. */
+  cut?: number;
 }
 
 /** From design y = `y` downward, the image is drawn `offset` px lower. */
@@ -65,7 +70,7 @@ export function computeFlow(items: FlowInput[]): Flow {
     stretch[it.id] = st;
     if (it.extra > 0) {
       const offset = Math.ceil(sh + st + it.extra);
-      const y = Math.round(it.bottom);
+      const y = Math.round(it.cut ?? it.bottom);
       const last = steps[steps.length - 1];
       if (offset > (last?.offset ?? 0)) {
         if (last && last.y >= y) last.offset = offset;

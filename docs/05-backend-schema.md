@@ -15,6 +15,7 @@
 - **page_handoffs** — history of a page's status changes (who handed it to whom, when) — migration 0008.
 - **figma_connections** — one Figma Personal Access Token per PM.
 - **figma_designs** — the fetched Figma frame (image + text blocks) for a page.
+- **pdf_reconstructions** — a PDF imported as an editable page: background layers, pictures, text blocks and the conversion report (files in the `pdfs` bucket).
 - **comments** — per-field discussion thread entries.
 - **activity_log** — the PM dashboard's activity feed, auto-populated by triggers.
 - **notification_prefs** — one row per user, a JSON blob of notification toggles.
@@ -97,7 +98,7 @@ PK: `(project_id, user_id)`.
 | template | text | no | `'custom'` |
 | pdf_text, pdf_filename, pdf_storage_path | text | no | — |
 | has_pdf_design | boolean | yes | `false` |
-| design_source | text, check in (`pdf`,`figma`) | no | null |
+| design_source | text, check in (`pdf`,`pdf_html`,`figma`) — `pdf_html`: PDF rebuilt into layers/pictures/live text (since 0010); `pdf`: older PDF pages, image + text overlay | no | null |
 | design_seed | text | no | — |
 | design_fonts | jsonb `{heading, body}` — Google Fonts names the PM picked for a PDF design (migration `0006`) | no | null |
 | updated_by_name | text | no | — |
@@ -168,6 +169,16 @@ Written only by the `record_page_handoff` trigger (after a page's status changes
 | blocks | jsonb (array of text blocks: position, size, color, font info) | yes, default `[]` |
 | fetched_at | timestamptz, default `now()` | yes |
 
+### `pdf_reconstructions` (0010)
+| Field | Type | Required |
+|---|---|---|
+| page_id | uuid, PK, FK → `pages`, cascade | yes |
+| version | integer, default 1 — shape of `model` | yes |
+| model | jsonb: `{ pages: [{ w, h, background, layers, images, blocks, report }] }`, geometry in PDF points, paths relative to the `pdfs` bucket (`<project>/pages/<page>/rebuild/<timestamp>/…`) | yes |
+| created_at | timestamptz, default `now()` | yes |
+
+RLS like `figma_designs`: admins and editors of the page write, every member of the page reads. The files use the existing `pdfs` bucket policies.
+
 ### `comments`
 | Field | Type | Required | Default |
 |---|---|---|---|
@@ -227,7 +238,7 @@ Index: `(pm_id, created_at desc)`. **Fully auto-populated by triggers** — the 
 - `clients` 1–many `client_emails`; `clients` 1–many `projects`.
 - `projects` many–many `auth.users` via `project_members` (role `editor` or `client`).
 - `projects` 1–many `pages`.
-- `pages` 1–many `fields`, 1–many `design_edits`, 0–1 `figma_designs`, 1–many `comments`.
+- `pages` 1–many `fields`, 1–many `design_edits`, 0–1 `figma_designs`, 0–1 `pdf_reconstructions`, 1–many `comments`.
 
 ## User ownership
 

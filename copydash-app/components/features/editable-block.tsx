@@ -19,6 +19,8 @@ export interface BlockLayout {
   maxWidth?: number;
   /** Show the text on its opaque background even when unedited (the design image behind it was cut). */
   forceLift?: boolean;
+  /** Sits on a zoomed picture whose copy of the text was wiped: show the text, with no background box. */
+  onPicture?: boolean;
   /** The text is longer than the design planned for. */
   overflow?: boolean;
   pageW: number;
@@ -117,8 +119,8 @@ export function EditableBlock({
     whiteSpace: "pre-wrap",
     wordBreak: "break-word",
     textAlign: block.textAlign || "left",
-    color: lifted ? textColor : "transparent",
-    background: lifted ? bgColor : hover || active ? "rgba(127,34,254,0.10)" : "transparent",
+    color: lifted || layout?.onPicture ? textColor : "transparent",
+    background: lifted && !layout?.onPicture ? bgColor : hover || active ? "rgba(127,34,254,0.10)" : "transparent",
     boxShadow: focused
       ? `0 0 0 2px ${overflow ? "#f59e0b" : "#7f22fe"}`
       : overflow

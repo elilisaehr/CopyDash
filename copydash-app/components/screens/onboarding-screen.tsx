@@ -35,6 +35,8 @@ export function OnboardingScreen({
   const [projectName, setProjectName] = React.useState("");
   const [company, setCompany] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  // Steps of the PDF rebuild (lib/pdf-rebuild-store), shown while the page is prepared.
+  const [progress, setProgress] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   const fail = (e: unknown, fallback: string) => {
@@ -76,8 +78,9 @@ export function OnboardingScreen({
     if (!projectId) return;
     setBusy(true);
     setError(null);
+    setProgress(null);
     try {
-      const pageId = await createPage(projectId, data);
+      const pageId = await createPage(projectId, data, setProgress);
       router.push(`/projects/${projectId}/pages/${pageId}`);
     } catch (e) {
       fail(e, "Couldn’t create the page. Please try again.");
@@ -134,6 +137,7 @@ export function OnboardingScreen({
               {busy ? (
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: "40px 0", color: "#71717b", fontSize: 13, fontFamily: "var(--font-sans)" }}>
                   <Spinner size={18} color="#7f22fe" /> Preparing your page…
+                  {progress && <span style={{ color: "#a1a1aa" }}>{progress}</span>}
                 </div>
               ) : (
                 <AddPageForm existingPages={[]} figmaConnected={false} onCancel={finishWithoutPage} onSubmit={addPage} cancelLabel="Skip for now" />
