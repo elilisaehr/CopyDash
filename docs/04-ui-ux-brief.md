@@ -4,7 +4,7 @@
 
 ## Audience and tone
 
-PM (professional tool user) and Client (occasional, often non-technical visitor). Tone across the UI: **clean, confident, minimal** — closer to a focused SaaS productivity tool than a playful consumer app.
+Admins and Editors (professional tool users) and Contributors (occasional, often non-technical visitors). Tone across the UI: **clean, confident, minimal** — closer to a focused SaaS productivity tool than a playful consumer app.
 
 **[MY INFERENCE — confirm]** Three adjectives for the visual language as built: **crisp, trustworthy, unfussy.** Flat surfaces, generous whitespace, a single accent color used sparingly, status communicated with small colored dots rather than heavy banners.
 
@@ -32,8 +32,8 @@ Defined in `app/globals.css` as CSS variables (Zinc neutral scale + a Purple acc
 
 **Semantic status colors** (used in `StatusBadge`, a colored dot + pill):
 - Draft — grey (`#f4f4f5` bg / `#71717b` text)
-- In Progress (with the client) — amber (`#fef9c3` bg / `#713f12` text)
-- Pending Review (with the agency) — blue (`#eff6ff` bg / `#1d4ed8` text)
+- In Progress (contributors' turn) — amber (`#fef9c3` bg / `#713f12` text)
+- Pending Review (admins' and editors' turn) — blue (`#eff6ff` bg / `#1d4ed8` text)
 - Completed — green (`#dcfce7` bg / `#15803d` text)
 
 **Changed text note** (under a text in both editors, `components/features/review.tsx: ChangeNote`): blue "Changed by X in the last round" + grey "Before: …" with the old text struck through. No review banner — the user prefers the status menu in the editor header.
@@ -66,15 +66,15 @@ Shared primitives in `components/ui/primitives.tsx` and `components/ui/`:
 - Fixed left **Sidebar** + a main content column.
 - Page gutters: `24px`/`48px` horizontal padding is the common pattern (`padding: "24px 48px"` repeated across screens).
 - Border radius scale: `6 / 8 / 10 / 12 / 14 / 24px` (xs → 2xl), used consistently for buttons/cards/modals.
-- Card-based lists (Projects, Pages, Clients) rather than dense tables with heavy gridlines.
+- Card-based lists (Projects, Pages) rather than dense tables with heavy gridlines.
 - No responsive breakpoint system is defined — layout assumes a desktop-width viewport. **[OPEN QUESTION / gap]** — mobile/small-screen behavior should be checked before relying on it.
 
 ## Screen notes
 
 - **Dashboard**: KPI row, recent projects, activity feed — information-dense but skimmable.
-- **Projects/Pages/Clients lists**: search + status filter tabs above a card-style table; row-level "…" menu for Rename/Archive/etc.
+- **Projects/Pages lists**: search + status filter tabs above a card-style table; row-level "…" menu for Rename/Archive/etc.
 - **Design Editor**: split view — rendered design on the left (scroll/zoom), a resizable text-fields panel on the right; each field card shows its label, content, and (for paragraph blocks) a word-count indicator.
-- **Auth screens** (`/login`, `/signup`): split layout, dark left panel with a small custom illustration (`components/ui/auth-visual.tsx` — a CSS/SVG mockup of the product, not a photo) + logo + tagline, form on the right.
+- **Auth screens** (`/login`, `/signup`, `/invite/[token]`): one shared frame (`components/ui/auth-shell.tsx`). Light purple left panel (`#f5f3ff`) with logo, headline and a CSS mockup of the product (`components/ui/auth-visual.tsx`) running off the bottom of the screen; form on the right. Below 900px the panel is hidden and the logo moves above the form. No testimonials until there are real, approved ones. The wording addresses agencies and in-house teams alike, so no "clients".
 
 ## Accessibility
 

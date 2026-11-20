@@ -4,7 +4,7 @@ import { getProfile, getUser } from "@/lib/auth";
 import { getWorkspaceContext } from "@/lib/workspace";
 import { OnboardingScreen } from "@/components/screens/onboarding-screen";
 
-// First-login wizard for agency accounts: workspace → first project → first
+// First-login wizard for people who signed up themselves: workspace → first project → first
 // page. Someone who already has a workspace with projects is done here;
 // someone who left after step 1 resumes at step 2.
 export default async function OnboardingPage() {
@@ -13,11 +13,11 @@ export default async function OnboardingPage() {
   if (!user) redirect("/login");
 
   const [profile, ctx] = await Promise.all([getProfile(), getWorkspaceContext(supabase, user.id)]);
-  if (!profile || profile.role !== "pm") redirect("/client");
+  if (!profile || profile.role !== "pm") redirect("/dashboard"); // invited contributors skip it
   if (ctx) {
-    if (ctx.role !== "admin") redirect("/pm");
+    if (ctx.role !== "admin") redirect("/dashboard");
     const { count } = await supabase.from("projects").select("id", { count: "exact", head: true }).eq("workspace_id", ctx.workspace.id);
-    if ((count ?? 0) > 0) redirect("/pm");
+    if ((count ?? 0) > 0) redirect("/dashboard");
   }
 
   const firstName = (profile.name || user.email || "").split(/[ @]/)[0];

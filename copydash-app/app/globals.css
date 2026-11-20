@@ -226,3 +226,18 @@ select {
   border-radius: 8px;
   animation: skeletonPulse 1.4s ease-in-out infinite;
 }
+
+/* Auth screens (components/ui/auth-shell.tsx) */
+.cd-auth-mobile-logo { display: none; }
+@media (max-width: 900px) {
+  .cd-auth-panel { display: none !important; }
+  .cd-auth-mobile-logo { display: block; }
+}
+.cd-auth-caret { animation: cd-auth-caret-blink 1.1s step-end infinite; }
+@keyframes cd-auth-caret-blink {
+  0%, 45% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cd-auth-caret { animation: none; }
+}

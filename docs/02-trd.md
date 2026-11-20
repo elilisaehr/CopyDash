@@ -22,9 +22,9 @@ Web only. Responsive breakpoints are not formally audited — the UI is built wi
 ## Authentication and roles
 
 - Supabase Auth, email/password sign-up and sign-in.
-- Role (`pm` or `client`) is chosen at sign-up, stored in the user's `user_metadata`, and copied into a `profiles` row on first login (`lib/auth.ts: ensureProfile`).
-- **Route protection is enforced independently in each route group's `layout.tsx`** (`app/pm/layout.tsx`, `app/client/layout.tsx`) as a Server Component: it reads the session, redirects to `/login` if absent, and redirects to the other role's home if the role doesn't match. There is no middleware-level gate — this is intentional (see above) but means protection is duplicated per layout rather than centralized.
-- A client is auto-linked to a PM's project via a Postgres trigger that matches the signing-up client's email against any `client_emails.address` row (case-insensitive) — see Backend Schema doc.
+- Roles are per project (`project_role()`, `lib/roles.ts`), not per account. `profiles.role` only remains to tell who signed up themselves (`pm`, gets the onboarding wizard) from who was invited as a contributor (`client`); it decides nothing about access.
+- **Route protection is enforced in the single route group's `app/(app)/layout.tsx`** as a Server Component: it reads the session, redirects signed-out users to `/login`, and sends someone with no workspace and no project to the wizard. Project pages return 404 when `project_role()` is null, and RLS is the real gate on the data. Old addresses redirect through `next.config.ts` and small pages in `app/client` and `app/pm/clients`.
+- Project access comes only from invitations (`/invite/[token]`). The old auto-link by email was removed in migration 0009.
 
 ## External services and APIs
 

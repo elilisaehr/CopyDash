@@ -131,7 +131,7 @@ export function DesignEditorScreen({
   });
   const fileRef = React.useRef<HTMLInputElement>(null);
 
-  // Clients edit only while the page is with them (the database enforces it too).
+  // Contributors edit only while the page is with them (the database enforces it too).
   const editable = role === "pm" || pageStatus === "In Progress";
 
   // ── load existing design_edits for this page ────────────────────────────
@@ -447,7 +447,7 @@ export function DesignEditorScreen({
     if (activeId) await persistBlock(activeId);
   };
 
-  // Status changes (agency menu, client "Submit for Review") save pending
+  // Status changes (status menu, contributor "Submit for Review") save pending
   // edits first, then go through the server action that emails the project.
   const moveTo = async (next: PageStatus) => {
     await flushActive();
@@ -791,7 +791,7 @@ export function DesignEditorScreen({
               </div>
               <div style={{ fontSize: 14, fontWeight: 600, color: "#09090b", fontFamily: "var(--font-sans)" }}>No design uploaded yet</div>
               <div style={{ fontSize: 12, maxWidth: 300, fontFamily: "var(--font-body)" }}>
-                {role === "pm" ? "Upload the page design as a PDF (exported from Figma) to start editing the copy on it." : "Your project manager hasn’t added the design for this page yet."}
+                {role === "pm" ? "Upload the page design as a PDF (exported from Figma) to start editing the copy on it." : "The design for this page hasn’t been added yet."}
               </div>
               {role === "pm" && (
                 <Btn variant="primary" size="sm" icon="upload" onClick={() => fileRef.current?.click()}>

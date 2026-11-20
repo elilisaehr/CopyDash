@@ -34,7 +34,7 @@ export default async function InvitePage({ params }: PageProps<"/invite/[token]"
       token={token}
       email={inv.email}
       signedInEmail={user?.email ?? undefined}
-      workspaceName={inv.workspace?.name ?? "an agency"}
+      workspaceName={inv.workspace?.name ?? "a workspace"}
       inviterName={(inviter as { name: string } | null)?.name || "Someone"}
       role={inv.role}
     />

@@ -1,7 +1,7 @@
 "use client";
 
-// First-login wizard for agency accounts. Three short steps, each saved as
-// soon as it's done: name the workspace → first project (+ optional client)
+// First-login wizard. Three short steps, each saved as soon as it's done:
+// name the workspace → first project (+ optional company)
 // → first page (PDF / Figma / blank), then straight into the editor.
 
 import * as React from "react";
@@ -33,7 +33,7 @@ export function OnboardingScreen({
   const [projectId, setProjectId] = React.useState<string | null>(null);
   const [workspaceName, setWorkspaceName] = React.useState(suggestedWorkspaceName);
   const [projectName, setProjectName] = React.useState("");
-  const [clientName, setClientName] = React.useState("");
+  const [company, setCompany] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -61,16 +61,9 @@ export function OnboardingScreen({
     if (!projectName.trim() || !workspaceId) return;
     setBusy(true);
     setError(null);
-    const supabase = createClient();
-    let clientId: string | null = null;
-    if (clientName.trim()) {
-      const { data, error: err } = await supabase.from("clients").insert({ pm_id: userId, workspace_id: workspaceId, name: clientName.trim() }).select("id").single();
-      if (err) return fail(err, "Couldn’t save the client. Please try again.");
-      clientId = data.id;
-    }
-    const { data, error: err } = await supabase
+    const { data, error: err } = await createClient()
       .from("projects")
-      .insert({ pm_id: userId, workspace_id: workspaceId, client_id: clientId, name: projectName.trim(), status: "In Progress" })
+      .insert({ pm_id: userId, workspace_id: workspaceId, company: company.trim(), name: projectName.trim(), status: "In Progress" })
       .select("id")
       .single();
     if (err) return fail(err, "Couldn’t create the project. Please try again.");
@@ -85,13 +78,13 @@ export function OnboardingScreen({
     setError(null);
     try {
       const pageId = await createPage(projectId, data);
-      router.push(`/pm/projects/${projectId}/pages/${pageId}`);
+      router.push(`/projects/${projectId}/pages/${pageId}`);
     } catch (e) {
       fail(e, "Couldn’t create the page. Please try again.");
     }
   };
 
-  const finishWithoutPage = () => router.push(projectId ? `/pm/projects/${projectId}` : "/pm");
+  const finishWithoutPage = () => router.push(projectId ? `/projects/${projectId}` : "/dashboard");
 
   return (
     <div style={{ minHeight: "100vh", background: "#f7f9fb", display: "flex", flexDirection: "column", alignItems: "center", padding: "48px 16px" }}>
@@ -119,10 +112,10 @@ export function OnboardingScreen({
           {step === 0 && (
             <StepForm
               title={firstName ? `Welcome, ${firstName}!` : "Welcome!"}
-              subtitle="Let’s set up your workspace. It’s where your projects, clients and teammates live."
+              subtitle="Let’s set up your workspace. It’s where your projects and teammates live."
               onSubmit={createWorkspace}
             >
-              <FieldInput label="Agency or studio name" value={workspaceName} onChange={setWorkspaceName} placeholder="e.g. Atelier Nord" helper="You can change it later in Settings." />
+              <FieldInput label="Company or studio name" value={workspaceName} onChange={setWorkspaceName} placeholder="e.g. Atelier Nord" helper="You can change it later in Settings." />
               <StepActions busy={busy} disabled={!workspaceName.trim()} label="Continue" />
             </StepForm>
           )}
@@ -130,7 +123,7 @@ export function OnboardingScreen({
           {step === 1 && (
             <StepForm title="Create your first project" subtitle="A project is one website. You’ll add its pages next." onSubmit={createProject}>
               <FieldInput label="Project name" value={projectName} onChange={setProjectName} placeholder="e.g. Lovely Bakd website" />
-              <FieldInput label="Client (optional)" value={clientName} onChange={setClientName} placeholder="e.g. Lovely Bakd" helper="Who the website is for. You can invite them once the page is ready." />
+              <FieldInput label="Company (optional)" value={company} onChange={setCompany} placeholder="e.g. Lovely Bakd" helper="Who the website is for. You can invite people once the page is ready." />
               <StepActions busy={busy} disabled={!projectName.trim()} label="Create project" />
             </StepForm>
           )}

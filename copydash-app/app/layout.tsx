@@ -23,7 +23,7 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "CopyDash — Content Collection Platform",
   description:
-    "Collect, review and hand off website content between agencies and clients.",
+    "Collect, review and hand off website copy, right on the page design.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

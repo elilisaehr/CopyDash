@@ -2,49 +2,49 @@
 
 ## Entry points
 
-- `/` — redirects based on auth state: signed out → `/login`; signed in → `/pm` or `/client` depending on role.
+- `/` — signed out → `/login`; signed in → `/dashboard`.
 - `/login` — public.
-- `/signup` — public; creates an **agency** account only. Editors and clients join through an invitation link.
-- `/invite/[token]` — public; landing page of an invitation link. Shows "create your account" (no account for that email yet), "sign in to accept" (account exists), "accept" (signed in with that email) or "sign out first" (signed in as someone else); an used or cancelled link shows "this invitation can't be used". Accepting lands on `/pm` (admin/editor) or `/client`.
+- `/signup` — public; creates an account that starts a new workspace. Editors and contributors join through an invitation link.
+- `/invite/[token]` — public; landing page of an invitation link. Shows "create your account" (no account for that email yet), "sign in to accept" (account exists), "accept" (signed in with that email) or "sign out first" (signed in as someone else); a used or cancelled link shows "this invitation can't be used". Accepting lands on `/dashboard`. An existing account can join in any role.
+- Old addresses (`/pm/*`, `/client/*`, including links in emails already sent) redirect to the new ones.
+
+## Roles
+
+Everyone uses the same app. A role is held **per project**: someone can be an admin in their own workspace and a contributor on another workspace's project.
+
+- **Admin** — manages the workspace: projects, people, settings.
+- **Editor** — on the projects they're on: adds, removes and edits pages, moves statuses, invites and removes contributors.
+- **Contributor** — on the projects they're on: edits copy while a page is In Progress, submits for review, comments. Creates nothing. Stored as `client` in the database, displayed as "Contributor".
 
 ## Screen inventory
 
-**PM side** (sidebar: Dashboard, Projects, Clients, Settings, Help & Support)
+Sidebar for everyone: Dashboard, Projects, Settings, Help & Support. All routes are protected by `app/(app)/layout.tsx`.
 
-| Screen | Route | Purpose | Required data |
+| Screen | Route | Purpose | Who |
 |---|---|---|---|
-| Dashboard | `/pm` | Overview: KPIs, recent projects, activity feed | `profiles`, `projects` (+ client name, page stats), `activity_log` |
-| Projects list | `/pm/projects` | All active (non-archived) projects, filter by status, search | `projects` + stats |
-| New Project | `/pm/projects/new` | One-step form: name, client (existing or new) | `clients` |
-| Pages list | `/pm/projects/[projectId]` | A project's pages, add/rename/archive a page | `projects`, `pages` |
-| Design Editor | `/pm/projects/[projectId]/pages/[pageId]` (when the page has a design) | Edit copy in place on the PDF/Figma design | `pages`, `design_edits` or `figma_designs` |
-| Field Editor | same route, fallback when no design | Structured list of text fields | `pages`, `fields` |
-| Clients | `/pm/clients` | Manage client companies + their emails | `clients`, `client_emails`, `projects` (for per-client project count) |
-| Settings | `/pm/settings` | Tabs: Account, Notifications, Team (admins: members, pending invitations, invite form), Branding, Integrations (Figma), **Archive** | `profiles`, `notification_prefs`, `workspace_members`, `invitations`, `project_members`, `branding_settings`, `figma_connections`, archived `projects`/`pages` |
-| Help & Support | `/pm/help` | Static help content | — |
+| Dashboard | `/dashboard` | People in a workspace: KPIs, recent projects, what needs attention, activity feed (admins). Contributors: each of their projects with its pages, "Your turn" first | Everyone |
+| Projects list | `/projects` | Active projects they can see, filter by status, search. Row menu: rename, edit company, archive (admins) | Everyone |
+| New Project | `/projects/new` | Name + optional company | Admins |
+| Project | `/projects/[projectId]` | **Pages** tab: list, add/rename/archive (admins, editors); contributors see the pages, theirs to act on first. **People** tab: admins and editors only | Everyone |
+| Design / Field Editor | `/projects/[projectId]/pages/[pageId]` | Edit copy on the PDF/Figma design, or in a list of fields when there's no design. Rights follow the person's role on this project | Everyone |
+| Settings | `/settings` | Account, Notifications. People in a workspace also get Integrations; admins also Team, Branding, Archive | Everyone |
+| Help & Support | `/help` | Static help. Contributors see their project's admin as contact, others CopyDash Support | Everyone |
 
-**Client side** (sidebar: My Work, Settings, Help & Support)
+**People tab:** who is on the project and pending invitations. Admins invite an Editor or Contributor, resend, cancel, and remove anyone except admins (they come with the workspace). Editors do the same for contributors only, and don't see the link of an invitation that also opens a project they aren't on. Inviting can hit the plan's contributor limit.
 
-| Screen | Route | Purpose | Required data |
-|---|---|---|---|
-| Client dashboard | `/client` | The one project they're linked to, with its pages ("Your turn" pages first) | `projects` (via `project_members`), `pages` |
-| Client page editor | `/client/pages/[pageId]` | Same Design/Field editor, role-gated to editing permissions | `pages`, `design_edits`/`fields` |
-| Settings | `/client/settings` | Account only | `profiles` |
-| Help & Support | `/client/help` | Static help content | — |
+## Primary journey
 
-## Primary journey (PM)
-
-1. **Sign up** (`/signup`, role = Project Manager) → auto-signed in (or "check your email" if confirmation is required) → lands on `/pm`.
-2. **Add a client** (`/pm/clients` → "Add Client") → name + one or more emails.
-3. **Create a project** (`/pm/projects/new`) → name + pick the client → lands on the project's empty Pages list.
-4. **Add a page** → choose PDF upload or Figma import (if connected) → page created with that design attached.
+1. **Sign up** (`/signup`) → onboarding wizard → workspace, first project, first page.
+2. **Create a project** (`/projects/new`) → name + optional company → lands on the project's empty Pages list.
+3. **Add a page** → choose PDF upload or Figma import (if connected) → page created with that design attached.
+4. **Invite people** (project → People tab) → they get an email link.
 5. **Edit content** on the Design Editor (click text in place) or the Field Editor (structured list) → auto-saves per block/field.
-6. **Set the status to In Progress** (status menu in the editor header) → the client sees "Your turn" on their dashboard. Every status change emails everyone else on the project ("X changed the status of the Y page to Z").
-7. **Client edits, then "Submit for Review"** (header button) → page becomes **Pending Review** and locks for the client; the dashboard's "Pages to review" counts it.
-8. **Agency reviews**: each text the client changed shows who changed it and "Before: …" → status **Completed**, or back to **In Progress** (the client then sees what the agency changed).
+6. **Set the status to In Progress** (status menu in the editor header) → contributors see "Your turn" on their dashboard. Every status change emails everyone else on the project ("X changed the status of the Y page to Z").
+7. **The contributor edits, then "Submit for Review"** (header button) → page becomes **Pending Review** and locks for contributors; the dashboard's "Pages to review" counts it.
+8. **An admin or editor reviews**: each text changed shows who changed it and "Before: …" → status **Completed**, or back to **In Progress** (the contributor then sees what changed).
 9. **Export** (PDF/JSON/CSV) to hand off to developers.
 
-Page statuses: **Draft** (agency preparing; client can read only) → **In Progress** (with the client: their turn) → **Pending Review** (with the agency: its turn) → **Completed** (final; the agency can "Reopen for the client"). A project's status is the most urgent of its pages' statuses.
+Page statuses: **Draft** (being prepared; contributors can read only) → **In Progress** (contributors' turn) → **Pending Review** (admins' and editors' turn) → **Completed** (final; can be reopened). A project's status is the most urgent of its pages' statuses.
 
 ## Alternate journeys
 
@@ -60,9 +60,9 @@ Page statuses: **Draft** (agency preparing; client can read only) → **In Progr
 - **Trigger**: submit the signup form.
 - **Validation**: name + valid email + password ≥ 6 characters (client-side `disabled` gate on the submit button; no server-side re-validation beyond what Supabase Auth itself enforces).
 - **Loading state**: button shows a spinner + "Creating account…".
-- **Success state**: if Supabase returns a session immediately, the profile is created and the user is redirected straight to `/pm` or `/client`; if email confirmation is required, a "Check your email" screen replaces the form.
+- **Success state**: if Supabase returns a session immediately, the profile is created and the user is redirected straight to `/dashboard`; if email confirmation is required, a "Check your email" screen replaces the form.
 - **Error state**: Supabase's error message shown inline above the submit button.
-- **Next screen**: `/pm` or `/client` (by role).
+- **Next screen**: `/dashboard` (the wizard first if they have no workspace).
 
 ### Add Page (PDF)
 - **Trigger**: "Add Page" on a project's Pages list → PDF tab → drag/select a file.
@@ -95,7 +95,7 @@ Page statuses: **Draft** (agency preparing; client can read only) → **In Progr
 
 ## Navigation rules
 
-- Persistent left **Sidebar**, different item sets for PM vs Client (see Screen inventory above); collapsible.
+- Persistent left **Sidebar**, the same for everyone; collapsible.
 - Every screen uses a shared **PageHeader** (title, optional subtitle, optional breadcrumb, action buttons on the right) for consistency.
 - No deep-linking conventions beyond direct route URLs (no query-param-driven modals, no shareable "jump to this field" links).
 - Back behavior is explicit breadcrumbs/buttons, not browser-history-dependent.
@@ -103,13 +103,13 @@ Page statuses: **Draft** (agency preparing; client can read only) → **In Progr
 ## Empty and blocked states
 
 - No pages in a project yet → empty-state illustration + "Add Page" call to action.
-- No design uploaded on a page yet → "No design uploaded yet" with an upload prompt (PM) or "Your project manager hasn't added the design for this page yet" (Client, read-only).
-- No clients yet → "Add Client" prompt on the Clients page; the New Project form shows "No clients yet — switch to 'New client' above."
+- No design uploaded on a page yet → "No design uploaded yet" with an upload prompt (admins, editors) or "The design for this page hasn't been added yet" (contributors, read-only).
+- A contributor with no project → "You haven't been added to a project yet" on the dashboard.
 - Figma not connected → a banner in the Add Page modal's Figma tab linking to Settings → Integrations.
-- Wrong role for a route → redirected by the layout's Server Component (PM hitting a `/client/*` route, or vice versa, bounces to their own home).
+- No access to a project → 404. Admin-only route (`/projects/new`) → back to `/dashboard`.
 - Signed out hitting any protected route → redirected to `/login`.
 
 ## First-use journey
 
-- **PM**: signs up, picks a role, lands on an essentially empty Dashboard (0 projects). No guided onboarding/checklist currently — the natural next step (add a client, then a project) is implied by the UI but not scripted. **[OPEN QUESTION]** — worth adding a first-run checklist/empty-state CTA sequence?
-- **Client**: can only be usefully onboarded *after* a PM has added their email under a client. If they sign up before that, they land on a dashboard with nothing linked — see the open question flagged in the PRD about this edge case.
+- **Signing up**: the onboarding wizard (workspace → first project → first page). Inviting people is done afterwards from the project's People tab.
+- **Invited**: the link creates the account or signs in, and lands on the dashboard. Invited contributors never see the wizard.

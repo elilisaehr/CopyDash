@@ -31,10 +31,11 @@
 
 ## Next up — product decisions of 2026-10-23 (in this order)
 
-### Status (2026-10-28)
+### Status (2026-11-05)
 
 - **A + speed pass — released** (PR #2, merged 2026-10-28; `0007` applied on prod).
-- **B Clearer review — built on branch `feat/clearer-review`, browser-tested on dev, not released yet.**
+- **Single space — built on branch `feat/single-space`, tested on dev, not released yet** (see "Single space" below). Comes before C.
+- **B Clearer review — released** (PR #3, merged 2026-10-28; `0008` applied on prod).
   - Page statuses keep their names — Draft → In Progress (with the client) → Pending Review (with the agency) → Completed — but each now means a turn (migration `0008_review_flow.sql`; the user preferred these names over With client / To review / Approved). The database decides who may move a page: the agency anywhere, a client only "submit" a page that is In Progress; clients can edit copy only while the page is In Progress.
   - No banner (the user asked to remove it): the agency changes status with the status menu in the editor header, the client with a "Submit for Review" button (shown while the page is In Progress). Both go through `lib/actions/review.ts`.
   - "What changed": each status change snapshots the copy; once a page has gone back and forth, each text changed in the last round shows "Changed by X — Before: …".
@@ -51,7 +52,7 @@
 - **Speed pass — done (2026-10-28).** Server functions pinned to Frankfurt (`vercel.json`, next to the prod DB — they were running in Washington), per-request dedupe of session/profile/workspace reads, parallel + joined queries, loading skeletons. The region change only applies once this branch is deployed.
 - **A3 Invitations — done (2026-10-28), browser-tested on dev.** Settings → Team lists members (owner, admins, editors + their projects), pending invitations (copy link / resend / cancel) and an invite form (Editor / Admin / Client + projects). Clients → card menu "Send invite" / "Copy invite link" invites the client's primary email to all its projects. Actions in `lib/actions/invitations.ts`; email via Resend REST in `lib/email.ts` (best-effort: if it fails, the admin gets the link to share). `/invite/[token]` (service role, `app/invite/[token]/actions.ts`) creates the account for the invited email or signs an existing one in, grants workspace/project membership, marks the client company Active. Sign-up is now agency-only (no Client choice). `team_invitations` is no longer used.
   - **Before inviting real people:** verify a sending domain in Resend and set `RESEND_FROM` (e.g. `CopyDash <invites@yourdomain>`); until then Resend only delivers to the Resend account owner's address. Add `RESEND_API_KEY` (and `RESEND_FROM`) to Vercel's environment variables. Optional `NEXT_PUBLIC_SITE_URL` fixes the link host (otherwise taken from the request).
-- **Next after B: C (export for developers).**
+- **Next after B: single space, then C (export for developers).**
 - **Dev environment:** `npm run dev` uses the `copydash-dev` Supabase project via `copydash-app/.env.development.local`; prod stays on `.env.local`. Dev test accounts: pm1 / pm2 / client1 / editor1 / newpm `@copydash.test` (password `Test-1234!`), created by the scratch seed script.
 - **Release checklist for A (when done):** (1) paste `0007_workspaces_roles.sql` into the **prod** Supabase SQL editor — it's backward compatible with the deployed code, so apply it *before* merging; (2) open a PR, check the Vercel preview with a real account; (3) merge. Existing PMs become admins on the 'pro' plan.
 - Later: decide paid plan limits/prices (D), then Stripe; mixed text styles (Milestone 4).
@@ -66,6 +67,48 @@
 - Statuses that say who must act: Draft → In Progress (client) → Pending Review (agency) → Completed.
 - Show what changed since the last hand-off (before/after, who edited what).
 - Email notification when it's someone's turn (uses A's email provider).
+
+**Single space (decided 2026-11-05, before C)**
+
+Everyone uses the same app and the same URLs. Roles are Admin / Editor / Contributor; the words "client", "PM" and "agency" leave the UI. The Clients page is replaced by a "Company" field on each project and a "People" tab per project.
+
+What a role can do does not change: Contributor = today's client (edits copy while a page is In Progress, submits for review, comments; creates nothing).
+
+Technical choices:
+- **No rename in the database.** `project_members.role` and `invitations.role` keep the value `client`, displayed as "Contributor" through one mapping (`lib/roles.ts`). Renaming would break the deployed code during a release, and users never see these values.
+- **Permissions become per project, not per account.** `profiles.role` stops deciding what someone sees. A new helper returns the person's role on a given project: admin if workspace admin, otherwise their `project_members.role`. The editors take that role instead of the route they were opened from. Row Level Security stays the real gate; existing policies already work per project.
+- **Nothing is deleted.** `clients` and `client_emails` stay in the database, unused, so a rollback stays possible and contact details are not lost. They can be dropped in a later migration.
+
+Steps, each one tested on dev before the next:
+1. **Database — migration `0009_single_space.sql`.** Add `projects.company` (text), backfilled from `clients.name`; safe to re-run. Add `project_role()`. Add `plan_limits.max_contributors` (null = unlimited on every plan until D sets the numbers), enforced by a trigger on invitations: it counts distinct people, contributors on active projects plus pending contributor invitations, and re-inviting someone already counted always passes. Drop the `link_client_projects` and `link_new_client_email` triggers: access now comes only from invitations, and they would undo a removal from the People tab whenever a profile is saved. Update the wording stored or raised by the database (activity feed, review guard). Backward compatible with the deployed code.
+2. **One space and one URL set.** A single protected route group (`app/(app)/layout.tsx`, no middleware): `/dashboard`, `/projects`, `/projects/new`, `/projects/[id]`, `/projects/[id]/pages/[pageId]`, `/settings`, `/help`. Old links keep working, including those in emails already sent: `/pm/*` via `redirects()` in `next.config.ts`, `/client/pages/[id]` via a small page that looks up the project. Check `node_modules/next/dist/docs/` first.
+3. **Roles in the screens.** Merge the dashboards, settings and sidebar; items depend on role. Contributors see their projects (no longer limited to one) with "your turn" pages first, and Account + Notifications in settings. The login page loses its PM/Client switch. `/invite` no longer refuses someone whose account has the other type, and everyone lands on `/dashboard`. Onboarding stays for accounts that signed up themselves, never for invited Contributors. Projects lists include projects from other workspaces the person was invited to, not just their own.
+4. **Company field.** Replaces the client picker in New Project and onboarding; shown on project lists. `export-modal` reads it too. Remove `/pm/clients`, `clients-screen.tsx` and `inviteClient`.
+5. **People tab per project.** Visible to Admins and Editors only, never to Contributors. Lists admins, editors, contributors and pending invitations. Admins can invite an Editor or Contributor to this project, resend/cancel and remove anyone from it. Editors can do the same for Contributors only, on their own projects. Server actions check `project_role()`, then use the service role, so invitation links stay unreadable to Editors. Settings → Team stays for the workspace-wide view and for inviting admins.
+6. **Wording pass.** UI, emails (`lib/email.ts`), help page, comment labels, placeholders.
+7. **Tests and docs.** New `supabase/dev/single-space-test.cjs` run by `rebuild.sh` (a Contributor on two projects, an admin invited to another workspace as Contributor, removal cuts access); keep `rls-test` and `review-test` green; browser test of each role; update docs 01–05.
+
+**Release checklist:** (1) paste `0009_single_space.sql` into the **prod** SQL editor just before merging; (2) PR + Vercel preview, tested with a real account; (3) merge; (4) paste `0009` again to fill the company of any project created in between.
+
+**Security audit (2026-11-05, `vibe-security` skill).** Fixed in `0009` and the code, with attack tests in `supabase/dev/security-test.cjs` (run by `rebuild.sh`):
+- Taking a client company's email on your own profile gave access to its projects (old triggers from `0002`, **live on prod until `0009` is applied**).
+- Comments could be rewritten or forged by any project member, and could target a page of another project.
+- Contributors could change field labels, limits and the "what changed" history, not only the text.
+- Profile email and account type could be changed freely; the email is now always the login's (read-only in Settings).
+- A removed or demoted admin kept admin rights on the projects they created; these now go to the workspace owner.
+- Resending an invitation returned its link to an editor who wasn't allowed to see it.
+- Added security headers (framing, referrer, MIME type) and `server-only` on the Supabase server client.
+
+**Must be done before inviting real people (with the verified Resend domain):**
+1. **Prove email ownership when an account is created from an invitation.** `createAccountAndAccept` confirms the email automatically because "the link proves it", but anyone can sign up, invite someone else's address, copy the link and create a confirmed account with their own password on that address. Needs working email, so the invitation link alone must stop being enough (confirmation email or code).
+2. **Limit the emails a person can trigger** (invitations and resends per user per day). Today anyone can sign up and have CopyDash send invitations with their own workspace name to any address, which would damage the domain's reputation.
+3. **Add "forgot password".** It doesn't exist, so someone locked out, or whose address was taken as in point 1, has no way back.
+
+**Later:** invitation links never expire (add an expiry); `signInAndAccept` allows password guesses through our server, so Supabase's per-address limits matter (check them, add a limit with point 2); Figma tokens are stored unencrypted (protected by access rules); a person can create extra workspaces to get around the free plan's limits (handle in step D); confirm that Vercel's Preview environment doesn't use production keys. CSP is limited to `frame-ancestors` for now.
+
+**Left to delete:** `components/screens/clients-screen.tsx`, then `inviteClient` in `lib/actions/invitations.ts`, `app/client/loading.tsx`, and the `Client` / `ClientEmail` types. Unreachable, but they must go together or the build breaks. `app/client/*` and `app/pm/clients` stay as small redirect pages for old links.
+
+Out of scope: real email domain (still needed before inviting real people), changing someone's role after they joined, a person switching between several workspaces, dropping the old tables.
 
 **C. Export for developers**
 - Copy button on every text; a read-only page view to copy from.

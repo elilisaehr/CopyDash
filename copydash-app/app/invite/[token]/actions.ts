@@ -17,19 +17,13 @@ async function pendingInvitation(token: string) {
   return data as Invitation | null;
 }
 
-const homeFor = (inv: Invitation) => (inv.role === "client" ? "/client" : "/pm");
-
 /** Grants what the invitation promises to `userId` and marks it accepted. Returns an error message or null. */
 async function grant(inv: Invitation, user: { id: string; email?: string | null; user_metadata?: Record<string, unknown> }): Promise<string | null> {
   const service = createAdminClient();
   const appRole = inv.role === "client" ? "client" : "pm";
 
-  const { data: profile } = await service.from("profiles").select("role").eq("id", user.id).maybeSingle();
-  if (profile && profile.role !== appRole) {
-    return appRole === "client"
-      ? "This email already has an agency account, so it can't join as a client. Ask the agency to invite a different address."
-      : "This email already has a client account, so it can't join an agency team. Ask the agency to invite a different address.";
-  }
+  // Roles are per project, so an existing account can join in any role.
+  const { data: profile } = await service.from("profiles").select("id").eq("id", user.id).maybeSingle();
   if (!profile) {
     const name = (user.user_metadata?.name as string) || inv.email.split("@")[0];
     const { error } = await service.from("profiles").insert({ id: user.id, role: appRole, name, email: user.email || inv.email });
@@ -52,16 +46,10 @@ async function grant(inv: Invitation, user: { id: string; email?: string | null;
   if (inv.role !== "admin" && projectIds.length) {
     const { error } = await service
       .from("project_members")
-      .upsert(projectIds.map((project_id) => ({ project_id, user_id: user.id, role: inv.role })), { onConflict: "project_id,user_id", ignoreDuplicates: true });
+      // An editor invitation upgrades a contributor; a contributor invitation never downgrades an editor.
+      .upsert(projectIds.map((project_id) => ({ project_id, user_id: user.id, role: inv.role })), { onConflict: "project_id,user_id", ignoreDuplicates: inv.role === "client" });
     if (error) return error.message;
   }
-  if (inv.role === "client") {
-    // The client company whose email this is now has access.
-    const { data: emails } = await service.from("client_emails").select("client_id").ilike("address", inv.email);
-    const clientIds = (emails ?? []).map((e) => e.client_id as string);
-    if (clientIds.length) await service.from("clients").update({ status: "Active" }).eq("workspace_id", inv.workspace_id).in("id", clientIds);
-  }
-
   await service.from("invitations").update({ accepted_at: new Date().toISOString(), accepted_by: user.id }).eq("id", inv.id);
   return null;
 }
@@ -75,7 +63,7 @@ export async function acceptInvitation(token: string): Promise<AcceptState> {
   if ((user.email || "").toLowerCase() !== inv.email.toLowerCase()) return { error: `This invitation is for ${inv.email}.` };
   const err = await grant(inv, user);
   if (err) return { error: err };
-  redirect(homeFor(inv));
+  redirect("/dashboard");
 }
 
 /** No account yet: create one for the invited email (the emailed link proves ownership), sign in, accept. */
@@ -102,7 +90,7 @@ export async function createAccountAndAccept(token: string, rawName: string, pas
   if (error || !data.user) return { error: error?.message || "Could not sign you in." };
   const err = await grant(inv, data.user);
   if (err) return { error: err };
-  redirect(homeFor(inv));
+  redirect("/dashboard");
 }
 
 /** Existing account that isn't signed in: sign in with the invited email, accept. */
@@ -114,5 +102,5 @@ export async function signInAndAccept(token: string, password: string): Promise<
   if (error || !data.user) return { error: "Wrong password." };
   const err = await grant(inv, data.user);
   if (err) return { error: err };
-  redirect(homeFor(inv));
+  redirect("/dashboard");
 }

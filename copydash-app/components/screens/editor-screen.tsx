@@ -5,7 +5,7 @@
 // (already fetched server-side by the route wrapper); this component
 // only talks to Supabase for the `fields` rows it edits and the
 // `pages.status` it updates, exactly as instructed. It renders INSIDE
-// the already-present AppLayout from app/pm|client/layout.tsx, so it
+// the already-present AppLayout from app/(app)/layout.tsx, so it
 // must never render its own Sidebar or a 100vh wrapper — see the
 // flex layout note below.
 
@@ -75,7 +75,7 @@ export function EditorScreen({
   const [pageStatus, setPageStatus] = React.useState(page.status);
   const [reviewVersion, setReviewVersion] = React.useState(0);
   const round = useReviewRound(page.id, "fields", reviewVersion);
-  // Clients edit only while the page is with them (the database enforces it too).
+  // Contributors edit only while the page is with them (the database enforces it too).
   const editable = role === "pm" || pageStatus === "In Progress";
   const [aiState, setAiState] = React.useState<AiState>("idle");
   const [aiMsgIdx, setAiMsgIdx] = React.useState(0);
@@ -199,7 +199,7 @@ export function EditorScreen({
     return c && (c.before ?? "") !== (c.after ?? "") ? c : null;
   };
 
-  // Status changes (agency menu, client "Submit for Review") save pending
+  // Status changes (status menu, contributor "Submit for Review") save pending
   // edits first, then go through the server action that emails the project.
   const moveTo = async (next: PageStatus) => {
     await saveFields();

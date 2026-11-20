@@ -7,7 +7,7 @@ import type { DesignFonts } from "@/lib/design-fonts";
 export type UserRole = "pm" | "client";
 /** Legacy column, no longer shown: a project's status is derived from its pages (lib/review.ts). */
 export type ProjectStatus = "Draft" | "In Progress" | "Pending Review" | "Completed";
-/** In Progress = with the client, Pending Review = with the agency — see lib/review.ts and migration 0008. */
+/** In Progress = with the contributors, Pending Review = with the admins and editors — see lib/review.ts and migration 0008. */
 export type PageStatus = "Draft" | "In Progress" | "Pending Review" | "Completed";
 export type ClientStatus = "Active" | "Waiting" | "Archived";
 export type EmailLabel = "Primary" | "Billing" | "Technical" | "Marketing" | "Other";
@@ -54,7 +54,9 @@ export interface Project {
   id: string;
   pm_id: string;
   workspace_id: string | null;
+  /** Legacy: the Clients page is gone, `company` replaces it (migration 0009). */
   client_id: string | null;
+  company: string;
   name: string;
   status: ProjectStatus;
   pdf_filename: string | null;
@@ -83,6 +85,7 @@ export interface PlanLimits {
   max_projects: number | null;
   max_pages_per_project: number | null;
   max_members: number | null;
+  max_contributors: number | null;
 }
 
 export interface Workspace {

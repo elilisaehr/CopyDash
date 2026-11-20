@@ -12,27 +12,35 @@ import { formatDate } from "@/lib/format";
 import { planLimitError } from "@/lib/plan";
 import { createPage, type NewPageData } from "@/lib/create-page";
 import { PlanLimitNotice } from "@/components/features/plan-limit-notice";
+import { ProjectPeoplePanel } from "@/components/features/project-people";
+import type { ProjectPeople } from "@/lib/people";
+import { managesProject, type ProjectRole } from "@/lib/roles";
 import type { Page, Project } from "@/lib/supabase/types";
 
 const STATUS_FILTERS = ["All", "Draft", "In Progress", "Pending Review", "Completed"];
-
-export interface ProjectWithClient extends Project {
-  clients: { name: string } | null;
-}
 
 export function PagesListScreen({
   project,
   pages,
   figmaConnected,
   pageLimitMessage,
+  role,
+  viewerId,
+  people,
 }: {
-  project: ProjectWithClient;
+  project: Project;
   pages: Page[];
   figmaConnected: boolean;
   /** Set when the plan's page limit for this project is reached. */
   pageLimitMessage: string | null;
+  role: ProjectRole;
+  viewerId: string;
+  /** Null for contributors: they don't get the People tab. */
+  people: ProjectPeople | null;
 }) {
   const router = useRouter();
+  const canManage = managesProject(role);
+  const [tab, setTab] = React.useState<"pages" | "people">("pages");
   const [search, setSearch] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState("All");
   const [addPageOpen, setAddPageOpen] = React.useState(false);
@@ -57,6 +65,8 @@ export function PagesListScreen({
     const mq = !search || pg.name.toLowerCase().includes(search.toLowerCase());
     return ms && mq;
   });
+  // A contributor's pages to act on come first (sort is stable).
+  const listed = canManage ? filtered : [...filtered].sort((a, b) => Number(b.status === "In Progress") - Number(a.status === "In Progress"));
 
   const stats = [
     { label: "Total Pages", value: pages.length, icon: "file-text" },
@@ -71,7 +81,7 @@ export function PagesListScreen({
     setError(null);
     try {
       const pageId = await createPage(project.id, data);
-      router.push(`/pm/projects/${project.id}/pages/${pageId}`);
+      router.push(`/projects/${project.id}/pages/${pageId}`);
       router.refresh();
     } catch (e) {
       setError(planLimitError(e) ?? (e instanceof Error ? e.message : "Couldn't create the page. Please try again."));
@@ -83,20 +93,55 @@ export function PagesListScreen({
     <>
       <PageHeader
         title={project.name}
-        subtitle={project.clients?.name || "No client assigned"}
-        breadcrumb={[{ label: "Projects", onClick: () => router.push("/pm/projects") }, { label: project.name }]}
+        subtitle={project.company || undefined}
+        breadcrumb={[{ label: "Projects", onClick: () => router.push("/projects") }, { label: project.name }]}
         actions={
-          <>
-            <Btn variant="outline" size="sm" icon="share">
-              Share
-            </Btn>
-            <Btn variant="primary" icon="plus" onClick={() => setAddPageOpen(true)} disabled={creatingPage || !!pageLimitMessage}>
-              {creatingPage ? "Creating…" : "Add Page"}
-            </Btn>
-          </>
+          canManage && (
+            <>
+              <Btn variant="outline" size="sm" icon="share">
+                Share
+              </Btn>
+              <Btn variant="primary" icon="plus" onClick={() => setAddPageOpen(true)} disabled={creatingPage || !!pageLimitMessage}>
+                {creatingPage ? "Creating…" : "Add Page"}
+              </Btn>
+            </>
+          )
         }
       />
 
+      {people && (
+        <div role="tablist" style={{ padding: "16px 48px 0", display: "flex", gap: 4, borderBottom: "1px solid #e4e4e7" }}>
+          {(["pages", "people"] as const).map((t) => (
+            <button
+              key={t}
+              role="tab"
+              aria-selected={tab === t}
+              onClick={() => setTab(t)}
+              style={{
+                padding: "8px 14px",
+                border: "none",
+                background: "none",
+                cursor: "pointer",
+                fontSize: 13,
+                fontWeight: 500,
+                fontFamily: "var(--font-sans)",
+                color: tab === t ? "#09090b" : "#71717b",
+                borderBottom: tab === t ? "2px solid #7f22fe" : "2px solid transparent",
+                marginBottom: -1,
+              }}
+            >
+              {t === "pages" ? "Pages" : `People (${people.people.length})`}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {people && tab === "people" ? (
+        <div style={{ padding: "24px 48px 48px", flex: 1 }}>
+          <ProjectPeoplePanel projectId={project.id} viewerId={viewerId} viewerRole={role} people={people.people} invitations={people.invitations} />
+        </div>
+      ) : (
+      <>
       <div style={{ padding: "24px 48px 0", display: "flex", gap: 16 }}>
         {stats.map((s) => (
           <KPICard key={s.label} {...s} />
@@ -147,11 +192,13 @@ export function PagesListScreen({
             </div>
             <SelectInput value={statusFilter} onChange={setStatusFilter} options={STATUS_FILTERS.map((s) => ({ value: s, label: s }))} />
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <Btn variant="outline" size="sm" icon="download">
-              Export PDF
-            </Btn>
-          </div>
+          {canManage && (
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn variant="outline" size="sm" icon="download">
+                Export PDF
+              </Btn>
+            </div>
+          )}
         </div>
 
         {/* Table */}
@@ -187,12 +234,13 @@ export function PagesListScreen({
               </tr>
             </thead>
             <tbody>
-              {filtered.map((pg, i) => (
+              {listed.map((pg, i) => (
                 <PageTableRow
                   key={pg.id}
                   page={pg}
-                  last={i === filtered.length - 1}
-                  onSelect={() => router.push(`/pm/projects/${project.id}/pages/${pg.id}`)}
+                  last={i === listed.length - 1}
+                  canManage={canManage}
+                  onSelect={() => router.push(`/projects/${project.id}/pages/${pg.id}`)}
                   onRename={() => setRenamingPage(pg)}
                 />
               ))}
@@ -210,6 +258,8 @@ export function PagesListScreen({
           {filtered.length} page{filtered.length !== 1 ? "s" : ""}
         </div>
       </div>
+      </>
+      )}
 
       {/* Add Page Modal */}
       <Modal open={addPageOpen} onClose={() => setAddPageOpen(false)} title="Add a new page" width={580}>
@@ -230,11 +280,13 @@ export function PagesListScreen({
 function PageTableRow({
   page: pg,
   last,
+  canManage,
   onSelect,
   onRename,
 }: {
   page: Page;
   last: boolean;
+  canManage: boolean;
   onSelect: () => void;
   onRename: () => void;
 }) {
@@ -317,16 +369,18 @@ function PageTableRow({
           <Btn variant="ghost" size="sm" icon="edit" onClick={onSelect}>
             Open
           </Btn>
-          <button
-            ref={menuBtnRef}
-            onClick={(e) => {
-              e.stopPropagation();
-              setMenuOpen((m) => !m);
-            }}
-            style={{ background: "none", border: "none", cursor: "pointer", padding: 4, borderRadius: 6, color: "#71717b" }}
-          >
-            <Icon name="more-horizontal" size={16} />
-          </button>
+          {canManage && (
+            <button
+              ref={menuBtnRef}
+              onClick={(e) => {
+                e.stopPropagation();
+                setMenuOpen((m) => !m);
+              }}
+              style={{ background: "none", border: "none", cursor: "pointer", padding: 4, borderRadius: 6, color: "#71717b" }}
+            >
+              <Icon name="more-horizontal" size={16} />
+            </button>
+          )}
         </div>
         <DropdownMenu open={menuOpen} anchorRef={menuBtnRef} onClose={() => setMenuOpen(false)}>
           <button
@@ -450,7 +504,7 @@ export function AddPageForm({
         <FigmaImportFields figmaConnected={figmaConnected} figmaUrl={figmaUrl} onFigmaUrl={setFigmaUrl} />
       ) : (
         <p style={{ margin: 0, fontSize: 13, color: "#71717b", fontFamily: "var(--font-body)" }}>
-          Upload the page design as a PDF — export it straight from Figma. Your client sees the real design in CopyDash and edits
+          Upload the page design as a PDF — export it straight from Figma. Contributors see the real design in CopyDash and edits
           the copy directly on it.
         </p>
       )}
@@ -678,7 +732,7 @@ function FigmaImportFields({
         <Icon name="alert-circle" size={15} color="#92400e" style={{ marginTop: 1 }} />
         <div style={{ fontSize: 12, color: "#92400e", fontFamily: "var(--font-body)", lineHeight: 1.5 }}>
           Connectez d&rsquo;abord votre compte Figma dans{" "}
-          <a href="/pm/settings" style={{ color: "#92400e", fontWeight: 600 }}>
+          <a href="/settings" style={{ color: "#92400e", fontWeight: 600 }}>
             Paramètres → Integrations
           </a>{" "}
           pour importer directement depuis Figma.
