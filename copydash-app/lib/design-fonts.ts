@@ -6,7 +6,7 @@
 
 import * as React from "react";
 import type { BlockKind, DesignBlock } from "./pdf-design";
-import { googleFamilySpec } from "./font-detect";
+import { registerGoogleFamily } from "./font-detect";
 import { createClient } from "./supabase/client";
 
 export interface StyleFont {
@@ -109,19 +109,12 @@ export function useDesignFonts(fonts: DesignFonts | null | undefined) {
   const files = fonts?.files ?? {};
   const all = [fonts?.heading, fonts?.body, ...Object.values(fonts?.styles ?? {}).map((s) => s.family)].filter((n): n is string => !!n);
   const google = [...new Set(all.filter((n) => !files[n]))].sort();
-  // One stylesheet per family: a family Google doesn't have only fails on its own.
+  // Through our server, family by family (see registerGoogleFamily): a
+  // family Google doesn't have only fails on its own.
   const key = google.join("|");
   React.useEffect(() => {
     if (!key) return;
-    for (const name of key.split("|")) {
-      const id = `cd-design-font-${name.replace(/[^a-zA-Z0-9]/g, "-")}`;
-      if (document.getElementById(id)) continue;
-      const link = document.createElement("link");
-      link.id = id;
-      link.rel = "stylesheet";
-      link.href = name in GOOGLE_FONTS ? googleFontsUrl([familyParam(name, GOOGLE_FONTS[name])]) : `https://fonts.googleapis.com/css2?family=${googleFamilySpec(name)}&display=swap`;
-      document.head.appendChild(link);
-    }
+    for (const name of key.split("|")) registerGoogleFamily(name);
   }, [key]);
   const fileKey = JSON.stringify(Object.entries(files).sort());
   React.useEffect(() => {
@@ -145,6 +138,24 @@ async function loadFontFile(supabase: ReturnType<typeof createClient>, family: s
     loadedFiles.delete(path);
     console.warn("Couldn't load the design font", family, e);
   }
+}
+
+/**
+ * Uploads a font file for a project and returns its storage path. Stored
+ * under a neutral name (no "font" or ".ttf" in the URL): content blockers
+ * cut requests to URLs like …/fonts/x.ttf ("Failed to fetch"). The family
+ * name is kept in pages.design_fonts.files.
+ */
+export async function uploadFontFile(supabase: ReturnType<typeof createClient>, projectId: string, family: string, file: File): Promise<string> {
+  const path = `${projectId}/design-assets/${crypto.randomUUID()}`;
+  try {
+    const { error } = await supabase.storage.from("pdfs").upload(path, file, { contentType: "application/octet-stream" });
+    if (error) throw error;
+  } catch (e) {
+    const why = e instanceof Error ? e.message : String(e);
+    throw new Error(`Couldn't upload the font file “${file.name}” (${family}): ${why}. A browser extension (ad or privacy blocker) may be blocking it.`);
+  }
+  return path;
 }
 
 /** Adds a font file to the document under `family`, covering every weight. */

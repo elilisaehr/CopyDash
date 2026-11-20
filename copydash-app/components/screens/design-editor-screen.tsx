@@ -33,7 +33,7 @@ import { changePageStatus } from "@/lib/actions/review";
 import { REBUILD_ERROR_KEY } from "@/lib/create-page";
 import { renderPdfDesign, joinLines, legacyLineIdPrefix, sampleBg, luminance, type DesignBlock, type RenderedPage, type BlockKind } from "@/lib/pdf-design";
 import { EditorFonts } from "@/components/features/editor-fonts";
-import { FONT_NAMES, cssFamily, useDesignFonts, useFontPreviews, useWebFonts, withFont, type DesignFonts } from "@/lib/design-fonts";
+import { FONT_NAMES, cssFamily, uploadFontFile, useDesignFonts, useFontPreviews, useWebFonts, withFont, type DesignFonts } from "@/lib/design-fonts";
 import { useResizablePanel } from "@/hooks/use-resizable-panel";
 import { ResizeHandle } from "@/components/ui/resize-handle";
 import type { Project, Page, PageStatus, UserRole, FigmaDesign } from "@/lib/supabase/types";
@@ -1391,12 +1391,7 @@ export function DesignEditorScreen({
               onSave={async (r) => {
                 const files = { ...(designFonts?.files ?? {}) };
                 const supabase = createClient();
-                for (const [family, file] of Object.entries(r.uploads)) {
-                  const path = `${project.id}/fonts/${file.name}`;
-                  const { error } = await supabase.storage.from("pdfs").upload(path, file, { upsert: true, contentType: file.type || "font/otf" });
-                  if (error) throw error;
-                  files[family] = path;
-                }
+                for (const [family, file] of Object.entries(r.uploads)) files[family] = await uploadFontFile(supabase, project.id, family, file);
                 await saveFonts({ ...(designFonts ?? {}), styles: r.styles, files });
                 setFontsOpen(false);
               }}

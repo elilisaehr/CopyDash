@@ -107,7 +107,7 @@ export function EditorFonts({
         </Btn>
       </div>
       {error && <span style={{ color: "#b91c1c", fontSize: 12, fontFamily: "var(--font-sans)" }}>{error}</span>}
-      <FontStep key={version} styles={styles} files={fonts?.files} onConfirm={(r) => onSave(r).catch(() => setError("Couldn't save the fonts. Please try again."))} confirmLabel="Save fonts" />
+      <FontStep key={version} styles={styles} files={fonts?.files} onConfirm={(r) => onSave(r).catch((e) => setError(e instanceof Error ? e.message : "Couldn’t save the fonts. Please try again."))} confirmLabel="Save fonts" />
     </div>
   );
 }

@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { PdfPasswordError, rebuildPdf, saveRebuild } from "@/lib/pdf-rebuild-store";
 import type { ReconstructedPage } from "@/lib/pdf-reconstruct";
 import { detectPdfFonts } from "@/lib/font-detect";
-import type { DesignFonts } from "@/lib/design-fonts";
+import { uploadFontFile, type DesignFonts } from "@/lib/design-fonts";
 import type { FontStepResult, FontStepStyle } from "@/components/features/font-step";
 
 export interface NewPageData {
@@ -64,12 +64,7 @@ export async function createPage(
       const choice = await confirmFonts(detected);
       if (choice) {
         const files: Record<string, string> = {};
-        for (const [family, file] of Object.entries(choice.uploads)) {
-          const path = `${projectId}/fonts/${file.name}`;
-          const { error } = await supabase.storage.from("pdfs").upload(path, file, { upsert: true, contentType: file.type || "font/otf" });
-          if (error) throw error;
-          files[family] = path;
-        }
+        for (const [family, file] of Object.entries(choice.uploads)) files[family] = await uploadFontFile(supabase, projectId, family, file);
         designFonts = { styles: choice.styles, ...(Object.keys(files).length ? { files } : {}) };
       }
     }

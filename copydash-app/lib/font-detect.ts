@@ -17,7 +17,8 @@
 // paid fonts (Avenir, DIN, IvyPresto) get a look-alike with a lower score.
 // So the result is a suggestion the user confirms on a side-by-side preview.
 //
-// Fonts are fetched through /api/fonts (our server asks Google Fonts).
+// Fonts are fetched through /api/typefaces (our server asks Google Fonts:
+// content blockers often cut the browser's own requests to Google Fonts).
 
 import type { ReconstructedPage } from "@/lib/pdf-reconstruct";
 
@@ -98,7 +99,7 @@ const detectName = (family: string) => `cd-detect-${family}`;
 async function loadFamily(family: string): Promise<{ family: string; weights: number[] } | null> {
   let css = "";
   for (const spec of [googleFamilySpec(family), family.replace(/ /g, "+")]) {
-    const res = await fetch(`/api/fonts?css=${encodeURIComponent(spec)}`);
+    const res = await fetch(`/api/typefaces?css=${encodeURIComponent(spec)}`);
     if (res.ok) {
       css = await res.text();
       break;
@@ -119,12 +120,46 @@ async function loadFamily(family: string): Promise<{ family: string; weights: nu
     const lo = +wm[1];
     const hi = wm[2] ? +wm[2] : lo;
     for (const w of TEST_WEIGHTS) if (w >= lo && w <= hi) weights.add(w);
-    const face = new FontFace(detectName(family), `url(/api/fonts?file=${encodeURIComponent(url)})`, { weight: wm[2] ? `${lo} ${hi}` : String(lo) });
+    const face = new FontFace(detectName(family), `url(/api/typefaces?file=${encodeURIComponent(url)})`, { weight: wm[2] ? `${lo} ${hi}` : String(lo) });
     document.fonts.add(face);
     faces.push(face.load().catch(() => null));
   }
   await Promise.all(faces);
   return weights.size ? { family, weights: [...weights].sort((a, b) => a - b) } : null;
+}
+
+const pageFamilies = new Map<string, Promise<boolean>>();
+/**
+ * Registers a Google family for display under its own name (latin and
+ * latin-ext faces with their unicode ranges, normal and italic), fetched
+ * through our server. Resolves false if Google doesn't have it.
+ */
+export function registerGoogleFamily(family: string): Promise<boolean> {
+  let p = pageFamilies.get(family);
+  if (!p) {
+    p = (async () => {
+      const res = await fetch(`/api/typefaces?css=${encodeURIComponent(googleFamilySpec(family))}`).catch(() => null);
+      const css = res?.ok ? await res.text() : "";
+      const re = /\/\*\s*(latin|latin-ext)\s*\*\/\s*@font-face\s*\{([^}]*)\}/g;
+      let m: RegExpExecArray | null;
+      const faces: Promise<unknown>[] = [];
+      while ((m = re.exec(css))) {
+        const body = m[2];
+        const url = body.match(/url\(([^)]+)\)/)?.[1];
+        const weight = body.match(/font-weight:\s*([\d ]+);/)?.[1]?.trim();
+        const style = body.match(/font-style:\s*(\w+)/)?.[1] ?? "normal";
+        const range = body.match(/unicode-range:\s*([^;]+);/)?.[1];
+        if (!url || !weight) continue;
+        const face = new FontFace(family, `url(/api/typefaces?file=${encodeURIComponent(url)})`, { weight, style, ...(range ? { unicodeRange: range } : {}) });
+        document.fonts.add(face);
+        faces.push(face.load().catch(() => null));
+      }
+      await Promise.all(faces);
+      return faces.length > 0;
+    })();
+    pageFamilies.set(family, p);
+  }
+  return p;
 }
 
 let candidates: Promise<{ family: string; weights: number[] }[]> | null = null;
