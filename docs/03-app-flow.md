@@ -52,7 +52,7 @@ Page statuses: **Draft** (being prepared; contributors can read only) → **In P
 - **Archive** a project or page: "…" menu → Archive (confirms first) → disappears from the active list; restorable from Settings → Archive → "Restore".
 - **Reset an edited field** to the design's original text: the "×" next to an edited field in the side panel.
 - **Skip the design entirely**: "Add Page" → "Skip PDF — create an empty page" → page has no design, uses the Field Editor only.
-- **Re-sync a Figma design** after the source file changed: "Re-sync from Figma" button in the Design Editor (PDF designs don't need this — they're re-read from the stored file on every page load automatically).
+- **Re-sync a Figma design** after the source file changed: "Re-sync from Figma" button in the Design Editor (PDF designs don't need this — they're re-read from the stored file, or from the rebuild saved at import, on every page load).
 
 ## Per-action detail (key actions)
 
@@ -67,7 +67,8 @@ Page statuses: **Draft** (being prepared; contributors can read only) → **In P
 ### Add Page (PDF)
 - **Trigger**: "Add Page" on a project's Pages list → PDF tab → drag/select a file.
 - **Validation**: a PDF file, ≤10MB (stated in the UI; not hard-enforced server-side), page name required and must not collide with an existing page name in that project.
-- **Loading state**: "Reading design…" while pdf.js extracts text client-side; "Creating…" while the row is written and the file uploads to Storage.
+- **Loading state**: "Reading design…" while pdf.js extracts text client-side; "Creating…" while the row is written and the file uploads to Storage; then "Preparing the page…" with the rebuild steps (page n/m, background layer n/m, saving) while the PDF is rebuilt into an editable page (a few seconds; ~10 s for a very long page with many pictures).
+- **Rebuild**: the PDF is split once, in the browser, into background layers, pictures and live text (`lib/pdf-reconstruct.ts`, saved by `lib/pdf-rebuild-store.ts` into `pdf_reconstructions` + `pdfs/<project>/pages/<page>/rebuild/`). If the rebuild fails, the page falls back to the older image + text overlay editor (`design_source = 'pdf'`).
 - **Success state**: redirected straight into that page's Design Editor.
 - **Error state**: inline error banner ("Couldn't create the page. Please try again.") if the insert or upload fails.
 - **Next screen**: the new page's Design Editor.
@@ -79,8 +80,10 @@ Page statuses: **Draft** (being prepared; contributors can read only) → **In P
 
 ### Edit text in the Design Editor
 - **Trigger**: click any text block on the rendered design.
+- **Rebuilt PDF pages** (`pdf_html`): the design is shown without its own text and every text block is live on top (no colour box when edited). A "Conversion report · n" button in the header lists what couldn't be converted exactly (text drawn as shapes, approximated fonts, scanned page, rotated text, transparency effects, faded pictures kept in the background, hidden pictures). "Replace" rebuilds the page from the new PDF.
 - **Validation**: none beyond the field's character budget (a soft cap computed from the original text's length, shown as a progress bar; paragraph-type blocks additionally show a word-count warning once the edit runs noticeably longer than the original — see the paragraph-merge fix in the Implementation Plan).
 - **Loading state**: none visible (writes are per-block, debounced to blur/commit).
+- **Longer text (flow layout)**: like a text element in Webflow/Elementor, a block that gets more text than the design planned for grows and pushes everything below it down. Paragraphs keep their design width and grow downward; single-line blocks (buttons, nav links, short titles) first widen into the free background on their row — read from the design image, so they stop at a picture or a button edge — then wrap. The design image is cut under the growing block and the gap is filled by stretching a plain background row (so a button or a coloured section grows with its text). A photo the cut runs through is zoomed instead (proportions kept, sides cropped evenly), like a CSS `cover` background: a flat card with text is never treated as a photo. If the photo has text higher up (a menu on a hero photo), the zoom starts just above the growing text, with a soft fade, so the menu stays put. The design's own copy of any text on the zoomed part is wiped and the text is shown live on top, without a background box. The block gets an amber outline and a "Too long for the design" tag, and its field card on the right explains that the layout below is pushed down. Geometry in `lib/design-flow.ts`, rendering in `components/features/design-page.tsx`. Shorter text never pulls content up; the design keeps its original spacing.
 - **Success state**: the block visually "lifts" to an opaque, color-matched pill so the new text reads clearly; a small save-status indicator in the header shows "Saved".
 - **Error state**: not currently surfaced distinctly from a generic failure — **[gap to flag, not an open question: worth adding a visible error state if a block fails to persist]**.
 - **Next screen**: none — stays on the same page.

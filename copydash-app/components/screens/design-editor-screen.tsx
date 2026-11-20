@@ -21,15 +21,22 @@ import { CommentButton } from "@/components/features/comments";
 import { computeSEO, SEOToggle, SEOPanel } from "@/components/features/seo";
 import { AISuggestButton } from "@/components/features/ai-suggest";
 import { EditableBlock } from "@/components/features/editable-block";
+import { DesignPage, type BlockFlowInfo, type StackPiece } from "@/components/features/design-page";
 import { mockGenerateFieldSuggestions } from "@/lib/ai-mock";
 import { getPdfjs } from "@/lib/pdf";
+import { PdfPasswordError, loadBackgrounds, loadPieces, loadRebuildModel, rebuildPdf, rebuildToRendered, saveRebuild, type LoadedPiece, type StoredModel } from "@/lib/pdf-rebuild-store";
+import type { ReconstructedPage } from "@/lib/pdf-reconstruct";
 import { createClient } from "@/lib/supabase/client";
 import { changePageStatus } from "@/lib/actions/review";
+import { REBUILD_ERROR_KEY } from "@/lib/create-page";
 import { renderPdfDesign, joinLines, legacyLineIdPrefix, sampleBg, luminance, type DesignBlock, type RenderedPage, type BlockKind } from "@/lib/pdf-design";
 import { FONT_NAMES, cssFamily, fontForKind, useDesignFonts, useFontPreviews, useWebFonts, type DesignFonts } from "@/lib/design-fonts";
 import { useResizablePanel } from "@/hooks/use-resizable-panel";
 import { ResizeHandle } from "@/components/ui/resize-handle";
 import type { Project, Page, PageStatus, UserRole, FigmaDesign } from "@/lib/supabase/types";
+
+// Day rebuilt PDF pages (migration 0010) arrived: PDF pages created since then are rebuilt at import.
+const REBUILD_SINCE = "2026-11-20";
 
 const KIND_LABEL: Record<BlockKind, string> = {
   heading: "Heading",
@@ -96,6 +103,30 @@ export function DesignEditorScreen({
   // down. Figma gives exact text position/content/style directly from its
   // API, so no pdf.js geometry-detection is needed for this source.
   const [figmaDesign, setFigmaDesign] = React.useState<FigmaDesign | null>(null);
+  // Rebuilt PDF (design_source "pdf_html"): the description saved at import
+  // and each page's background (no text) as a local object URL.
+  const [designSource, setDesignSource] = React.useState(page.design_source);
+  const isRebuild = designSource === "pdf_html";
+  const [rebuild, setRebuild] = React.useState<{ model: StoredModel; backgrounds: string[] } | null>(null);
+  const [rebuildVersion, setRebuildVersion] = React.useState(0);
+  const [rebuildProgress, setRebuildProgress] = React.useState<string | null>(null);
+  const [reportOpen, setReportOpen] = React.useState(false);
+  // A PDF page in the classic editor created since rebuilt pages exist means
+  // the rebuild failed at import: say so, with the reason when known, and offer a retry.
+  const rebuildFailed = designSource === "pdf" && page.created_at >= REBUILD_SINCE;
+  const [rebuildError, setRebuildError] = React.useState<string | null>(null);
+  const [retrying, setRetrying] = React.useState(false);
+  React.useEffect(() => {
+    if (!rebuildFailed) return;
+    try {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setRebuildError(sessionStorage.getItem(REBUILD_ERROR_KEY(page.id)));
+    } catch {
+      /* ignore */
+    }
+  }, [rebuildFailed, page.id]);
+  // Its layers and pictures, loaded after the backgrounds (only needed once text grows).
+  const [pieces, setPieces] = React.useState<LoadedPiece[][] | null>(null);
 
   const [scale, setScale] = React.useState(1);
   const [autoFit, setAutoFit] = React.useState(true);
@@ -104,6 +135,13 @@ export function DesignEditorScreen({
   const wrapRef = React.useRef<HTMLDivElement>(null);
   const pageRefs = React.useRef<Record<number, HTMLDivElement | null>>({});
   const fieldRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
+  // Where each block sits once longer text has pushed the design down, and which ones are too long.
+  const [flowInfo, setFlowInfo] = React.useState<Record<string, BlockFlowInfo>>({});
+  const flowShiftRef = React.useRef<Record<string, number>>({});
+  const onFlow = React.useCallback((info: Record<string, BlockFlowInfo>) => {
+    for (const [id, f] of Object.entries(info)) flowShiftRef.current[id] = f.shift;
+    setFlowInfo((prev) => ({ ...prev, ...info }));
+  }, []);
 
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [saveStatus, setSaveStatus] = React.useState<"idle" | "saving" | "saved">("idle");
@@ -122,13 +160,19 @@ export function DesignEditorScreen({
   const [aiState, setAiState] = React.useState<AiState>("idle");
   const [aiProgress, setAiProgress] = React.useState(0);
   const [aiMsgIdx, setAiMsgIdx] = React.useState(0);
-  const [hint, setHint] = React.useState(() => {
+  // Read after mount: the server can't see localStorage, and reading it in
+  // the initial state made the first render differ (hydration error).
+  const [hint, setHint] = React.useState(false);
+  React.useEffect(() => {
+    let seen = false;
     try {
-      return !localStorage.getItem("cd-design-hint-seen");
+      seen = !!localStorage.getItem("cd-design-hint-seen");
     } catch {
-      return true;
+      /* ignore */
     }
-  });
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!seen) setHint(true);
+  }, []);
   const fileRef = React.useRef<HTMLInputElement>(null);
 
   // Contributors edit only while the page is with them (the database enforces it too).
@@ -158,7 +202,7 @@ export function DesignEditorScreen({
   // (no pdfPath means no design has been uploaded yet — nothing to load;
   // the empty-state pane is driven directly off `pdfPath` in the render.)
   React.useEffect(() => {
-    if (!pdfPath) return;
+    if (!pdfPath || isRebuild) return;
     let cancelled = false;
     (async () => {
       setPdfStatus("loading");
@@ -177,7 +221,7 @@ export function DesignEditorScreen({
     return () => {
       cancelled = true;
     };
-  }, [pdfPath]);
+  }, [pdfPath, isRebuild]);
 
   // Fit the design to the available pane width on first render.
   const handleNaturalWidth = React.useCallback(
@@ -216,6 +260,63 @@ export function DesignEditorScreen({
       cancelled = true;
     };
   }, [pdfBuffer, scale, handleNaturalWidth]);
+
+  // ── Rebuilt PDF path: load the saved description and page backgrounds ──
+  React.useEffect(() => {
+    if (!isRebuild) return;
+    let cancelled = false;
+    let urls: string[] = [];
+    (async () => {
+      setPdfStatus("loading");
+      const supabase = createClient();
+      try {
+        const model = await loadRebuildModel(supabase, page.id);
+        if (!model) throw new Error("No rebuilt design saved for this page");
+        urls = await loadBackgrounds(supabase, model);
+        if (cancelled) return;
+        setRebuild({ model, backgrounds: urls });
+        setPdfStatus("ready");
+        const loaded = await loadPieces(supabase, model);
+        urls = [...urls, ...loaded.urls];
+        if (cancelled) return;
+        setPieces(loaded.pages);
+      } catch (e) {
+        if (!cancelled) {
+          console.warn("Rebuilt design load failed", e);
+          setPdfStatus("error");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      urls.forEach((u) => URL.revokeObjectURL(u));
+    };
+  }, [isRebuild, page.id, rebuildVersion]);
+
+  // Re-derive pages/blocks from the rebuilt design at the live zoom.
+  React.useEffect(() => {
+    if (!rebuild) return;
+    const rendered = rebuildToRendered(rebuild.model, rebuild.backgrounds, scale);
+    // Synchronous derivation from already-loaded state (same as the Figma path below).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPages(rendered);
+    setBlocks(rendered.flatMap((p) => p.blocks));
+    if (rebuild.model.pages.length) handleNaturalWidth(rebuild.model.pages[0].w);
+  }, [rebuild, scale, handleNaturalWidth]);
+
+  // The pieces at the live zoom, per page, in the shape DesignPage draws.
+  const stacks = React.useMemo(() => {
+    if (!pieces) return null;
+    const sc = (b: [number, number, number, number]): [number, number, number, number] => [b[0] * scale, b[1] * scale, b[2] * scale, b[3] * scale];
+    return pieces.map((page): StackPiece[] =>
+      page.map((p) => (p.kind === "vector" ? { kind: "vector", img: p.img, box: sc(p.box) } : { kind: "image", img: p.img, box: sc(p.box), frame: sc(p.frame), radius: p.radius * scale, opacity: p.opacity })),
+    );
+  }, [pieces, scale]);
+
+  const report = React.useMemo(
+    () => (rebuild ? rebuild.model.pages.flatMap((p, i) => p.report.map((r) => ({ ...r, page: i + 1 }))) : []),
+    [rebuild],
+  );
 
   // ── Figma path: fetch the design fetched at import/resync time ─────────
   React.useEffect(() => {
@@ -360,7 +461,7 @@ export function DesignEditorScreen({
     const pageEl = pageRefs.current[pageIdx];
     const wrap = wrapRef.current;
     if (pageEl && wrap && block) {
-      const target = pageEl.offsetTop + block.top - 140;
+      const target = pageEl.offsetTop + block.top + (flowShiftRef.current[block.id] || 0) - 140;
       wrap.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
     }
   }, [activeId, pdfStatus, pages]);
@@ -459,12 +560,30 @@ export function DesignEditorScreen({
 
   const handleReplace = async (file: File | null) => {
     if (!file) return;
+    const prevStatus = pdfStatus;
     setPdfStatus("loading");
     const supabase = createClient();
+    // Rebuilt pages: split the new PDF first, so a file that can't be opened
+    // (password) is refused before anything is replaced.
+    let rebuilt: ReconstructedPage[] | null = null;
+    if (isRebuild) {
+      try {
+        rebuilt = await rebuildPdf(await file.arrayBuffer(), setRebuildProgress);
+      } catch (e) {
+        setRebuildProgress(null);
+        if (e instanceof PdfPasswordError) {
+          alert(e.message);
+          setPdfStatus(prevStatus);
+          return;
+        }
+        console.warn("PDF rebuild failed, falling back to the image editor", e);
+      }
+    }
     const path = pdfPath || `${project.id}/${page.id}/${Date.now()}-${file.name}`;
     const { error: upErr } = await supabase.storage.from("pdfs").upload(path, file, { upsert: true, contentType: "application/pdf" });
     if (upErr) {
       console.warn("Design PDF upload failed", upErr);
+      setRebuildProgress(null);
       setPdfStatus("error");
       return;
     }
@@ -473,7 +592,51 @@ export function DesignEditorScreen({
     await supabase.from("design_edits").delete().eq("page_id", page.id);
     setEdits({});
     setAutoFit(true);
+    if (isRebuild) {
+      try {
+        if (!rebuilt) throw new Error("Rebuild failed");
+        await saveRebuild(supabase, project.id, page.id, rebuilt, setRebuildProgress);
+        setPieces(null);
+        setRebuildVersion((v) => v + 1);
+      } catch (e) {
+        // Keep the page usable with the older image editor.
+        console.warn("Falling back to the image editor", e);
+        await supabase.from("pages").update({ design_source: "pdf" }).eq("id", page.id);
+        setRebuild(null);
+        setDesignSource("pdf");
+      } finally {
+        setRebuildProgress(null);
+      }
+    }
     setPdfPath(path);
+  };
+
+  // Rebuild a page that fell back to the classic editor, from its stored PDF.
+  // Block ids come from the same text detection, so existing edits stay attached.
+  const retryRebuild = async () => {
+    if (!pdfBuffer) return;
+    setRetrying(true);
+    setRebuildError(null);
+    try {
+      const supabase = createClient();
+      const rebuilt = await rebuildPdf(pdfBuffer.slice(0), setRebuildProgress);
+      await saveRebuild(supabase, project.id, page.id, rebuilt, setRebuildProgress);
+      const { error } = await supabase.from("pages").update({ design_source: "pdf_html" }).eq("id", page.id);
+      if (error) throw error;
+      try {
+        sessionStorage.removeItem(REBUILD_ERROR_KEY(page.id));
+      } catch {
+        /* ignore */
+      }
+      setPieces(null);
+      setDesignSource("pdf_html");
+    } catch (e) {
+      console.warn("PDF rebuild retry failed", e);
+      setRebuildError(e instanceof Error ? e.message : typeof e === "object" && e && "message" in e ? String((e as { message: unknown }).message) : String(e));
+    } finally {
+      setRetrying(false);
+      setRebuildProgress(null);
+    }
   };
 
   const dismissHint = () => {
@@ -653,6 +816,11 @@ export function DesignEditorScreen({
                       Fonts
                     </Btn>
                   )}
+                  {report.length > 0 && (
+                    <Btn variant="outline" size="sm" icon="alert-circle" onClick={() => setReportOpen(true)}>
+                      Conversion report · {report.length}
+                    </Btn>
+                  )}
                   <input ref={fileRef} type="file" accept=".pdf,application/pdf" style={{ display: "none" }} onChange={(e) => handleReplace(e.target.files?.[0] || null)} />
                   <Btn variant="outline" size="sm" icon="upload" onClick={() => fileRef.current?.click()}>
                     Replace
@@ -716,6 +884,42 @@ export function DesignEditorScreen({
             </div>
           )}
 
+          {rebuildFailed && (
+            <div
+              role="alert"
+              style={{
+                position: "absolute",
+                top: 16,
+                left: "50%",
+                transform: "translateX(-50%)",
+                zIndex: 22,
+                maxWidth: "calc(100% - 32px)",
+                width: 560,
+                background: "#fffbeb",
+                border: "1px solid #fde68a",
+                color: "#92400e",
+                borderRadius: 10,
+                padding: "10px 14px",
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 10,
+                boxShadow: "0 6px 24px rgba(0,0,0,0.12)",
+              }}
+            >
+              <Icon name="alert-circle" size={14} color="#b45309" style={{ marginTop: 2, flexShrink: 0 }} />
+              <div style={{ flex: 1, fontSize: 13, lineHeight: 1.45, fontFamily: "var(--font-sans)" }}>
+                This PDF couldn&apos;t be rebuilt as an editable page, so it opened in the classic editor.
+                {rebuildError && <div style={{ fontSize: 12, marginTop: 2, color: "#b45309", fontFamily: "var(--font-mono)", wordBreak: "break-word" }}>{rebuildError}</div>}
+                {retrying && rebuildProgress && <div style={{ fontSize: 12, marginTop: 2 }}>{rebuildProgress}</div>}
+              </div>
+              {role === "pm" && (
+                <Btn variant="outline" size="sm" onClick={retryRebuild} disabled={retrying || !pdfBuffer}>
+                  {retrying ? "Rebuilding…" : "Try again"}
+                </Btn>
+              )}
+            </div>
+          )}
+
           {hint && editable && showDesign && (
             <div
               style={{
@@ -747,7 +951,8 @@ export function DesignEditorScreen({
               {pdfStatus === "loading" && (
                 <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, color: "#71717b" }}>
                   <Spinner size={26} color="#7f22fe" />
-                  <div style={{ fontSize: 13, fontFamily: "var(--font-sans)" }}>Rendering design…</div>
+                  <div style={{ fontSize: 13, fontFamily: "var(--font-sans)" }}>{rebuildProgress ? "Rebuilding the design…" : "Rendering design…"}</div>
+                  {rebuildProgress && <div style={{ fontSize: 12, color: "#a1a1aa", fontFamily: "var(--font-sans)" }}>{rebuildProgress}</div>}
                 </div>
               )}
               {pdfStatus === "error" && (
@@ -759,16 +964,16 @@ export function DesignEditorScreen({
               )}
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 28, padding: "32px 24px 80px" }}>
                 {pages.map((pg) => (
-                  <div
-                    key={pg.pageIndex}
-                    ref={(el) => {
+                  <DesignPage
+                    key={`${pg.pageIndex}-${pg.w}`}
+                    pg={pg}
+                    pageRef={(el) => {
                       pageRefs.current[pg.pageIndex] = el;
                     }}
-                    style={{ position: "relative", width: pg.w, height: pg.h, background: "#fff", borderRadius: 6, overflow: "hidden", boxShadow: "0 4px 30px rgba(0,0,0,0.14)", flexShrink: 0 }}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={pg.url} crossOrigin="anonymous" width={pg.w} height={pg.h} draggable={false} style={{ display: "block", userSelect: "none" }} alt="" />
-                    {pg.blocks.map((b) => (
+                    onFlow={onFlow}
+                    liveText={isRebuild}
+                    stack={isRebuild ? stacks?.[pg.pageIndex] : undefined}
+                    renderBlock={(b, layout) => (
                       <EditableBlock
                         key={b.id}
                         block={withDesignFont(b)}
@@ -778,9 +983,10 @@ export function DesignEditorScreen({
                         onActivate={setActiveId}
                         active={activeId === b.id}
                         editable={editable}
+                        layout={layout}
                       />
-                    ))}
-                  </div>
+                    )}
+                  />
                 ))}
               </div>
             </div>
@@ -892,6 +1098,14 @@ export function DesignEditorScreen({
                   </div>
                   <FieldTextarea value={field.content} onChange={(v) => onChange(b.id, v)} maxLength={field.maxChars} rows={b.kind === "body" || b.kind === "lead" ? 3 : 2} disabled={!editable} />
                   {isParagraph(b) && <WordCount text={field.content} original={b.text} />}
+                  {flowInfo[b.id]?.overflow && (
+                    <div style={{ marginTop: 8, padding: "7px 10px", borderRadius: 8, background: "#fffbeb", border: "1px solid #fde68a", display: "flex", gap: 7, alignItems: "flex-start" }}>
+                      <Icon name="alert-circle" size={13} color="#b45309" style={{ marginTop: 1, flexShrink: 0 }} />
+                      <span style={{ fontSize: 11, lineHeight: 1.45, color: "#92400e", fontFamily: "var(--font-body)" }}>
+                        Too long for the space in the design — everything below is pushed down. Shorten it to keep the original layout.
+                      </span>
+                    </div>
+                  )}
                   {change ? (
                     <ChangeNote change={change} original={b.text} />
                   ) : edited && (
@@ -932,6 +1146,10 @@ export function DesignEditorScreen({
         <ExportPanel fields={fields} onClose={() => setExportOpen(false)} />
       </Modal>
 
+      <Modal open={reportOpen} onClose={() => setReportOpen(false)} title="Conversion report" width={520}>
+        <ConversionReport items={report} pages={rebuild?.model.pages.length ?? 1} />
+      </Modal>
+
       <Modal open={fontsOpen} onClose={() => setFontsOpen(false)} title="Design Fonts" width={480}>
         {fontsOpen && <FontsPanel value={designFonts} onSave={saveFonts} onClose={() => setFontsOpen(false)} />}
       </Modal>
@@ -940,6 +1158,28 @@ export function DesignEditorScreen({
       <Modal open={!!resyncConflicts} onClose={() => resolveConflicts([])} title="Text changed in Figma and CopyDash" width={640}>
         {resyncConflicts && <ResyncConflictsPanel conflicts={resyncConflicts} labelFor={(id) => fields.find((f) => f.id === id)?.label || "Text"} onResolve={resolveConflicts} />}
       </Modal>
+    </div>
+  );
+}
+
+// What the PDF → editable page conversion couldn't keep as is (lib/pdf-reconstruct).
+function ConversionReport({ items, pages }: { items: { code: string; message: string; count?: number; page: number }[]; pages: number }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <p style={{ margin: 0, fontSize: 13, color: "#71717b", lineHeight: 1.5, fontFamily: "var(--font-body)" }}>
+        The PDF was rebuilt into an editable page: background, pictures and live text. Most of it looks like the original; these points couldn&apos;t be converted exactly.
+      </p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 380, overflowY: "auto" }}>
+        {items.map((r, i) => (
+          <div key={`${r.page}-${r.code}-${i}`} style={{ padding: "10px 12px", borderRadius: 8, background: "#fffbeb", border: "1px solid #fde68a", display: "flex", gap: 8, alignItems: "flex-start" }}>
+            <Icon name="alert-circle" size={14} color="#b45309" style={{ marginTop: 2, flexShrink: 0 }} />
+            <div style={{ fontSize: 13, color: "#92400e", lineHeight: 1.5, fontFamily: "var(--font-body)" }}>
+              {pages > 1 && <strong style={{ fontWeight: 600 }}>Page {r.page} · </strong>}
+              {r.message}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

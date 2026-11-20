@@ -45,6 +45,8 @@ export function PagesListScreen({
   const [statusFilter, setStatusFilter] = React.useState("All");
   const [addPageOpen, setAddPageOpen] = React.useState(false);
   const [creatingPage, setCreatingPage] = React.useState(false);
+  // Steps of the PDF rebuild (lib/pdf-rebuild-store), shown while the page is prepared.
+  const [progress, setProgress] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [renamingPage, setRenamingPage] = React.useState<Page | null>(null);
 
@@ -80,7 +82,8 @@ export function PagesListScreen({
     setCreatingPage(true);
     setError(null);
     try {
-      const pageId = await createPage(project.id, data);
+      setProgress(null);
+      const pageId = await createPage(project.id, data, setProgress);
       router.push(`/projects/${project.id}/pages/${pageId}`);
       router.refresh();
     } catch (e) {
@@ -150,6 +153,13 @@ export function PagesListScreen({
 
       <div style={{ padding: "24px 48px 48px", flex: 1 }}>
         {pageLimitMessage && <PlanLimitNotice message={pageLimitMessage} style={{ marginBottom: 16 }} />}
+        {creatingPage && (
+          <div role="status" style={{ marginBottom: 16, padding: "12px 14px", background: "#f5f3ff", border: "1px solid #e9e4ff", borderRadius: 10, display: "flex", alignItems: "center", gap: 10 }}>
+            <Spinner size={15} color="#7f22fe" />
+            <span style={{ fontSize: 13, fontWeight: 600, color: "#7f22fe", fontFamily: "var(--font-sans)" }}>Preparing the page…</span>
+            {progress && <span style={{ fontSize: 12, color: "#a684ff", fontFamily: "var(--font-sans)" }}>{progress}</span>}
+          </div>
+        )}
         {error && (
           <div
             style={{

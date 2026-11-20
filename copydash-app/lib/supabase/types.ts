@@ -127,7 +127,8 @@ export interface Page {
   pdf_filename: string | null;
   pdf_storage_path: string | null;
   has_pdf_design: boolean;
-  design_source: "pdf" | "figma" | null;
+  /** "pdf_html": PDF rebuilt into layers, pictures and live text (lib/pdf-rebuild-store). "pdf": older PDF pages, image + text overlay. */
+  design_source: "pdf" | "pdf_html" | "figma" | null;
   design_seed: string | null;
   /** PDF designs only — see lib/design-fonts.ts. */
   design_fonts: DesignFonts | null;

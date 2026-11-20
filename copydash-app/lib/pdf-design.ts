@@ -301,10 +301,14 @@ export function buildBlocks(
   raw.sort((a, b) => a.baseline - b.baseline || a.x - b.x);
 
   const lines: Line[] = [];
+  // Same line: close baselines, judged on the smaller font (a large title's
+  // tolerance would swallow the small text beside it), and similar sizes.
+  const similarSize = (a: number, b: number) => Math.max(a, b) / Math.min(a, b) <= 1.6;
   for (const r of raw) {
     let L: Line | null = null;
     for (let i = lines.length - 1; i >= 0; i--) {
-      if (Math.abs(lines[i].baseline - r.baseline) <= Math.max(4, r.fontH * 0.45)) {
+      const lineH = lines[i].items[0].fontH;
+      if (Math.abs(lines[i].baseline - r.baseline) <= Math.max(4, Math.min(r.fontH, lineH) * 0.45) && similarSize(r.fontH, lineH)) {
         L = lines[i];
         break;
       }
@@ -332,7 +336,7 @@ export function buildBlocks(
     for (let i = 1; i < its.length; i++) {
       const prev = group[group.length - 1];
       const gap = its[i].x - (prev.x + prev.w);
-      if (gap > Math.max(16 * scale, prev.fontH * 2)) {
+      if (gap > Math.max(16 * scale, Math.min(prev.fontH, its[i].fontH) * 2)) {
         pushSegment(group);
         group = [its[i]];
       } else group.push(its[i]);
@@ -363,6 +367,16 @@ export function buildBlocks(
   }
 
   const blocks: DesignBlock[] = [];
+  // Same text on the same row (e.g. three "Learn more" links side by side)
+  // would share an id, so one edit would land on all of them: the first
+  // keeps the plain id (edits saved before this fix stay attached), the
+  // next ones get -2, -3… in reading order.
+  const usedIds = new Map<string, number>();
+  const uniqueId = (id: string) => {
+    const n = (usedIds.get(id) || 0) + 1;
+    usedIds.set(id, n);
+    return n === 1 ? id : `${id}-${n}`;
+  };
   for (const { segs, pitch } of paragraphs) {
     const first = segs[0];
     const last = segs[segs.length - 1];
@@ -383,7 +397,7 @@ export function buildBlocks(
     blocks.push({
       // Position is measured at scale 1 so the id (and the saved edit keyed
       // by it) is the same at every zoom level and screen width.
-      id: `p${pageIndex}-${hashStr(text)}-${Math.round(top / scale / 8)}`,
+      id: uniqueId(`p${pageIndex}-${hashStr(text)}-${Math.round(top / scale / 8)}`),
       pageIndex,
       x,
       top,

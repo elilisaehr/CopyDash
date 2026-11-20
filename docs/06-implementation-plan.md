@@ -29,6 +29,67 @@
 | Decide on password reset | Either a real "forgot password" flow (Supabase Auth supports this natively) or explicitly deprioritize it | The Settings → Account password form either works or is removed/labeled "coming soon" instead of silently doing nothing | None |
 | Review Figma token storage | Decision: accept plaintext storage for now, or add encryption | Documented decision in the TRD; implemented if "encrypt" is chosen | None |
 
+## PDF → reconstructed page (decided 2026-11-20, inspired by Acrobat's "Export PDF → HTML Web Page")
+
+Goal: a newly imported PDF is no longer one flat picture with text laid over it, but a page rebuilt from separate pieces — live text, real images, a background layer — that looks like the original and can later be exported as HTML. Right panel (text fields) stays as it is.
+
+**User decisions (2026-11-20)**
+- Method: true reconstruction (not "image + overlay"); a zone that can't be rebuilt stays a picture.
+- Images: replace and crop/zoom inside their frame (no move/resize/delete for now).
+- Complex layouts: a "conversion report" listing what couldn't be converted, and a manual "Keep as image" tool (select a zone → it stays a non-editable picture).
+- Who: everyone on the page can do it (Admin, Editor, Contributor), within the existing "who may edit when" rules of the review flow.
+- Existing PDF pages: untouched (old mode). Only new imports use the reconstructed page.
+- Multi-page PDF: one CopyDash page, PDF pages stacked (as today).
+- The uncommitted photo-zoom work on `feat/editor-flow-ai` is not committed (user: "everything will change"); it stays in the working tree for the old mode.
+
+**How it works (technical)**
+Extraction runs once, in the browser (pdf.js, already used), right after upload, and is saved — the editor no longer re-reads the PDF on every visit.
+1. **Text** → paragraphs with position, font, size, weight, colour, alignment (today's `buildBlocks`), plus structure: heading level from font-size ranking (H1/H2/H3/paragraph), list items, links (PDF link annotations).
+2. **Images** → every picture drawn on the page (pdf.js operator list: image draws + their position/size/clip), each saved as its own file in Storage.
+3. **Background** → the page rendered with text and images left out: fills, borders, vector shapes, gradients. Saved as one image per page.
+4. **Fonts** → fonts embedded in the PDF are loaded so live text uses the real typeface; a subset font missing a typed letter falls back to the page's design fonts (`design_fonts`).
+5. **Conversion report** → per page: text drawn as outlines (not editable), scanned page (no text — OCR not supported), missing fonts, rotated text, transparency/blend effects, probable tables, text over images, very many small images (vector art rasterised).
+Stored as a JSON "document model" (new table, one row per page) + files in the existing Storage bucket. Text edits keep using `design_edits` keyed by block id. New `pages.design_source` value `pdf_html`. Migration `0010` (dev first; prod at release).
+
+**Feasibility test (2026-11-20) — OK.** `lib/pdf-reconstruct.ts` + dev-only bench `/dev/pdf-lab` (404 in production). On the Fondation Borel PDF (Figma export, 1440×5793, 23 images): 2.8 s in Chrome, 9 vector layers (66 KB) + 23 image placements (18 files), 57 text blocks; rebuilt page matches the original except image resampling noise and anti-aliased card edges (~10% of non-text pixels flagged, all visually invisible). Findings that shaped the design:
+- Figma PDFs draw visible text as vector outlines (Type3 "FigmaGlyphs"); the real text is an invisible layer. Glyph paths are found as paths ≥60% covered by text boxes and left out of the layers. No usable embedded font → text uses the design fonts.
+- Images are placed through clip paths (rounded rect radius read from the path's first point) and opacity (`ca`); carousels stack hidden slides.
+- Vector fills are painted *above* some images (hero gradient overlay), hence layers interleaved with images in paint order, not one background.
+- pdf.js `operationsFilter` can't be used to drop single ops (fills that also define clips lose the clip); instead every op runs and canvas paint calls are gated per op. Whole balanced blocks (save…restore, groups, forms) with nothing of the current layer are skipped. Node + @napi-rs/canvas gives wrong results for this — test in the browser only.
+- Speed (user's "Home final.pdf", Synova, 1920×11445, 37 images, 57 masks): first version >5 min → 10 s. Vector drawing joins an earlier layer unless something painted in between overlaps it (26 layers instead of one per gap), each layer is rendered only over its own area, text-box lookups use a grid. Borel: 1 s. The tab is busy during extraction — show progress at import (and consider a worker later).
+- Soft masks: Figma wraps frames/photos in masks that are just solid rectangles → treated as clips (photo stays replaceable). Real fading masks (gradients, non-rectangular shapes) → the photo stays in the background layers, reported as `masked_images`. Synova: 32 replaceable photos, 5 kept in the background, 0.85% of non-text pixels differ; Borel 0.3%.
+
+**Built on `feat/pdf-to-html` (2026-11-20, not committed):** `0010_pdf_reconstruction.sql` (applied on dev), `lib/pdf-rebuild-store.ts` (split → upload → `pdf_reconstructions`; load), `createPage` splits the PDF before creating the page (password-protected PDFs refused with a message; other failures fall back to `design_source = 'pdf'`), progress banner on Add Page / onboarding, editor `pdf_html` mode (flattened background + live text, "Conversion report · n" modal, Replace re-splits first). When text grows, the page is redrawn piece by piece (`drawStack` in `design-page.tsx`): layers below a cut move down, a layer crossed by a cut repeats its own row (sections and buttons get taller), pictures crossed by a cut zoom inside their own frame, paint order kept — no more image guessing (that broke buttons next to a fading photo).
+
+**Edge cases handled (tested on Borel, Synova and a 3-page Chrome PDF: hero photo + gradient + logo, columns, list, card, rotated text, tiny text, table, mixed styles, scanned page):**
+- Text that isn't visible on the page (hidden carousel slides, text under a picture): compared against the original render, left out → `hidden_text`.
+- Icon fonts writing icon names as text ("angle-right"): kept as pictures → `icons_as_text`.
+- Rotated / slanted text: kept in the background, not editable → `rotated_text`.
+- Pictures used on several pages (pdf.js `commonObjs`, ids `g_…`) are extracted too.
+- `text_as_shapes` only reported from 5 paths (an underline isn't worth a warning).
+- Paragraphs mixing fonts/sizes → `mixed_styles` (rich text still deferred).
+- Scanned page → `scanned_page`, picture extracted.
+
+**Round 2 (user test on Citadelle "Accueil 03" + Synova):**
+- A failed rebuild at import no longer falls back silently: PDF pages created since 2026-11-20 that are in the classic editor show a banner with the reason (kept in sessionStorage for the session) and "Try again" (re-splits the stored PDF; edits stay attached — same block ids). "Home final v2" was fixed this way; the failures happened while the code was being edited (no files were uploaded), a dry-run of the save step in `/dev/pdf-lab` passes on all test PDFs.
+- Growing text cuts through the middle of its last line on rebuilt pages, so a button or card grows from its middle (keeps its padding and rounded corners); each layer stretches its plainest row near the cut (an icon on the cut row no longer streaks).
+- Text detection (`buildBlocks`, shared with the classic editor): items join a line only if their sizes are similar and the baseline tolerance uses the smaller font; column gaps are judged on the smaller font — a big title no longer swallows the small text beside it. Glyph paths: ≥60% covered by text boxes, or ≥35% and ≥60 drawing commands (a paragraph drawn as one shape leaves its blank lines uncovered).
+- Rebuilt headings keep the designer's line breaks.
+- `/dev/pdf-lab` now uses the app's render scale and dry-runs the save step.
+
+**Round 3 — fidelity target ≤ 0.05% of non-text pixels (user, 2026-11-20):**
+- The background shown in the editor is no longer stacked by us: pdf.js renders the whole page minus the editable text in one gated pass (`ReconstructedPage.background`), saved as JPEG at quality 1 (below 1, Chrome subsamples colour: 0.08–0.1% drift on Synova). Measured as saved (JPEG decoded again) in `/dev/pdf-lab`: Borel 0%, Citadelle 0%, Chrome 3-page test 0.0006/0/0%, Synova 0.0002%.
+- Pieces (used only to redraw the page while a text is longer than the design): each picture is now also rendered by pdf.js in its frame (`shown`, clip/corners/opacity baked in, uploaded as PNG). Citadelle 0.041%, Chrome test 0%, Borel 0.052% (a colour layer with a blend mode over a photo can't be split exactly), Synova 0.87% (many blend-mode/mask effects). Tried running soft-mask definitions in every layer render: broke pdf.js compositing (13%), reverted.
+- Cost: more files per import (shown pictures + bigger JPEG background; Synova ~35 MB, Borel ~19 MB, Citadelle ~11 MB) and a longer split on picture-heavy pages (Synova ~27 s vs 15 s). Timings in a long-running test tab are unreliable (memory) — re-measure in a fresh tab.
+
+**Known limits left:** single-line text over a photo can't widen past its original width (free space is read from the image, a photo stops it); links and underlines aren't kept as such yet (HTML export step); the tab is busy for a few seconds during the split.
+
+**Steps (in order)**
+1. **Extraction + display + report** — import → extract → save → show the rebuilt page in the editor (background, images, live editable text; longer text pushes the content below down, as today) and the conversion report. Starts with a feasibility test on real PDFs (incl. the Fondation Borel one) before building the screens.
+2. **Images** — replace an image (upload) and crop/zoom it in its frame.
+3. **Keep as image** — select a zone; it is rendered as a picture from the original PDF, its text removed from the editable fields.
+4. **HTML export** — later.
+
 ## Next up — product decisions of 2026-10-23 (in this order)
 
 ### Status (2026-11-05)
