@@ -9,6 +9,7 @@ import { DesignPage, type StackPiece } from "@/components/features/design-page";
 import { EditableBlock } from "@/components/features/editable-block";
 import { checkText, compareWords, type TextCheck } from "./text-check";
 import { FONT_NAMES, cssFamily, useDesignFonts } from "@/lib/design-fonts";
+import { debugCompare, detectFonts, loadCandidates, pickSamples, type StyleResult, type StyleSample } from "./font-detect";
 
 // Local test bench for PDF → reconstructed page. Runs one PDF or every
 // reference PDF (~/Desktop/Test, served by ./files), and scores each page:
@@ -29,6 +30,7 @@ interface PageResult {
   pct: number;
   piecesPct: number;
   words: { missing: string[]; extra: string[] };
+  styles: StyleSample[];
 }
 
 interface DocResult {
@@ -253,13 +255,23 @@ async function asSaved(c: HTMLCanvasElement) {
 }
 
 /** The PDF's text layer, one string per page (items joined as the reader would). */
-async function pdfText(data: ArrayBuffer): Promise<string[]> {
+async function pdfText(data: ArrayBuffer, scales: number[]): Promise<{ texts: string[]; styles: StyleSample[][] }> {
   const pdfjs = await getPdfjs();
   const doc = await pdfjs.getDocument({ data }).promise;
   const out: string[] = [];
+  const styles: StyleSample[][] = [];
   for (let p = 1; p <= doc.numPages; p++) {
     const page = await doc.getPage(p);
     const tc = await page.getTextContent();
+    // Text runs in page px, grouped by pdf.js font, for font detection.
+    const vp = page.getViewport({ scale: scales[p - 1] || 1 });
+    const geo = tc.items.flatMap((it) => {
+      if (!("str" in it) || !it.str.trim()) return [];
+      const m = pdfjs.Util.transform(vp.transform, it.transform);
+      const rotated = Math.abs(it.transform[1]) > 0.01 * Math.abs(it.transform[0]) || Math.abs(it.transform[2]) > 0.01 * Math.abs(it.transform[3]);
+      return [{ str: it.str, fontName: it.fontName, x: m[4], baseline: m[5], fontH: Math.hypot(m[2], m[3]), w: it.width * vp.scale, rotated }];
+    });
+    styles.push(pickSamples(geo));
     let s = "";
     let prevEnd: number | null = null;
     let prevY = 0;
@@ -280,14 +292,14 @@ async function pdfText(data: ArrayBuffer): Promise<string[]> {
     page.cleanup();
   }
   await doc.loadingTask.destroy();
-  return out;
+  return { texts: out, styles };
 }
 
 async function runDoc(name: string, buf: ArrayBuffer, onStatus: (s: string) => void): Promise<DocResult> {
   const t = performance.now();
-  const texts = await pdfText(buf.slice(0));
   const pdfjs = await getPdfjs();
   const pages = await reconstructPdf(pdfjs, buf.slice(0), scaleFor, (msg) => onStatus(`${name}: ${msg}`));
+  const { texts, styles } = await pdfText(buf.slice(0), pages.map((p) => p.scale));
   const ms = Math.round(performance.now() - t);
   const res: PageResult[] = await Promise.all(
     pages.map(async (pg) => {
@@ -301,6 +313,7 @@ async function runDoc(name: string, buf: ArrayBuffer, onStatus: (s: string) => v
         pct: m.pct,
         piecesPct: mismatch(pg.original, flattenPage(pg), pg).pct,
         words: compareWords([texts[pg.pageIndex] || ""], pg.blocks.map((b) => b.text)),
+        styles: styles[pg.pageIndex] || [],
       };
     }),
   );
@@ -358,6 +371,23 @@ export function PdfLab() {
   const [showIssues, setShowIssues] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
   const [font, setFont] = React.useState("");
+  const [fonts, setFonts] = React.useState<Record<string, StyleResult[]>>({});
+  const runFontDetect = async () => {
+    setBusy(true);
+    const t = performance.now();
+    const cands = await loadCandidates(setStatus);
+    const out: Record<string, StyleResult[]> = {};
+    for (const d of docs) {
+      for (const p of d.pages) {
+        setStatus(`Detecting fonts: ${d.name}…`);
+        out[`${d.name}#${p.pg.pageIndex + 1}`] = await detectFonts(p.pg, p.styles, cands);
+        setFonts({ ...out });
+      }
+    }
+    (window as unknown as { __labFonts: unknown }).__labFonts = out;
+    setStatus(`Fonts detected (${cands.length} candidate families) in ${Math.round((performance.now() - t) / 1000)} s`);
+    setBusy(false);
+  };
   useDesignFonts(font ? { heading: font, body: font } : null);
   const waiting = React.useRef<{ key: string; pages: number; done: () => void } | null>(null);
   const checksRef = React.useRef(checks);
@@ -473,6 +503,14 @@ export function PdfLab() {
           };
         }),
   );
+  // Font detection debug from the console: __fontDebug(doc, style, line, family, weight).
+  React.useEffect(() => {
+    (window as unknown as { __fontDebug: unknown }).__fontDebug = (di: number, si: number, li: number, family: string, weight: number) => {
+      const p = docsRef.current[di]?.pages[0];
+      const l = p?.styles[si]?.lines[li];
+      return p && l ? debugCompare(p.pg, l, family, weight) : null;
+    };
+  }, []);
   // pdf.js itself, for experiments from the console.
   React.useEffect(() => {
     getPdfjs().then((p) => ((window as unknown as { __pdfjs: unknown }).__pdfjs = p));
@@ -499,6 +537,14 @@ export function PdfLab() {
         >
           Run every reference PDF
         </button>
+        <button
+          id="lab-detect-fonts"
+          disabled={busy || !docs.length}
+          onClick={runFontDetect}
+          style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #7f22fe", background: "#fff", color: "#7f22fe", cursor: busy ? "default" : "pointer", fontWeight: 600 }}
+        >
+          Detect fonts
+        </button>
         <input
           type="file"
           multiple
@@ -510,6 +556,33 @@ export function PdfLab() {
       <p id="lab-status" style={{ margin: "8px 0" }}>
         {status}
       </p>
+
+      {Object.keys(fonts).length > 0 && (
+        <div id="lab-fonts" style={{ margin: "12px 0" }}>
+          <b>Font detection</b> (best weight per family; score = shape overlap − ½ width error)
+          {Object.entries(fonts).map(([key, list]) => (
+            <div key={key} style={{ marginTop: 8 }}>
+              <div style={{ fontWeight: 600 }}>{key}</div>
+              <table style={{ borderCollapse: "collapse", fontSize: 12 }}>
+                <tbody>
+                  {list.map((st) => (
+                    <tr key={st.fontName}>
+                      <td style={cell}>
+                        “{st.sample}” · {st.size}pt
+                      </td>
+                      {st.matches.slice(0, 5).map((m, i) => (
+                        <td key={m.family} style={{ ...cell, fontWeight: i === 0 ? 700 : 400 }}>
+                          {m.family} {m.weight} <span style={{ color: "#888" }}>{m.score.toFixed(3)}</span>
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
+        </div>
+      )}
 
       {rows.length > 0 && (
         <>
