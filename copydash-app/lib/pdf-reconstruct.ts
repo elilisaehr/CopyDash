@@ -105,6 +105,8 @@ export interface PageDiagnostics {
   faintDropped: number;
   /** Text operations removed from the background while the transform (not the text matrix) rotates them. */
   ctmRotatedText: number;
+  /** Blocks whose text colour was read from the ink (original minus background) because buildBlocks couldn't. */
+  inkColoured: number;
 }
 
 type Mat = number[];
@@ -772,6 +774,38 @@ export async function reconstructPdf(
       }
       if (right > b.x + b.fontH * 0.3 && right < b.x + b.w) b.w = right - b.x;
     }
+    // Text colour where buildBlocks couldn't read it: its margin samples (10 px
+    // around the block) can miss a box tighter than that (a red link in a white
+    // box on a red section) and then the text falls back to white or black.
+    // The ink is exact here: original minus the page without the text.
+    let inkColoured = 0;
+    for (const b of blocks) {
+      if (b.color) continue;
+      const x0 = Math.max(0, Math.floor(b.x));
+      const x1 = Math.min(W, Math.ceil(b.x + b.w));
+      const y0 = Math.max(0, Math.floor(b.top));
+      const y1 = Math.min(H, Math.ceil(b.top + b.h));
+      const diff = (i: number) => Math.abs(od[i] - fd[i]) + Math.abs(od[i + 1] - fd[i + 1]) + Math.abs(od[i + 2] - fd[i + 2]);
+      let max = 0;
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) max = Math.max(max, diff((y * W + x) * 4));
+      if (max <= 60) continue;
+      // The strongest ink: glyph cores, not their antialiased edges.
+      const acc = [0, 0, 0];
+      let n = 0;
+      for (let y = y0; y < y1; y++)
+        for (let x = x0; x < x1; x++) {
+          const i = (y * W + x) * 4;
+          if (diff(i) >= max * 0.75) {
+            acc[0] += od[i];
+            acc[1] += od[i + 1];
+            acc[2] += od[i + 2];
+            n++;
+          }
+        }
+      if (!n) continue;
+      b.color = `rgb(${acc.map((v) => Math.round(v / n)).join(",")})`;
+      inkColoured++;
+    }
     // Headings keep the designer's line breaks ("Le temps long." / "Les liens
     // durables.") — the live font differs, so re-flowing by width would move
     // them. The id was computed from the joined text, so it doesn't change.
@@ -851,7 +885,7 @@ export async function reconstructPdf(
         }),
     );
 
-    const diagnostics: PageDiagnostics = { ops: F.length, filterCalls, glyphOps: glyphOps.size, glyphRects, keptRects, droppedBlocks: hiddenText, faintDropped, ctmRotatedText };
+    const diagnostics: PageDiagnostics = { ops: F.length, filterCalls, glyphOps: glyphOps.size, glyphRects, keptRects, droppedBlocks: hiddenText, faintDropped, ctmRotatedText, inkColoured };
     out.push({ pageIndex: p - 1, scale, w: W, h: H, layers, images, blocks, original, background, report, styles, diagnostics });
     page.cleanup();
   }

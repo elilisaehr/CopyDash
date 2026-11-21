@@ -321,6 +321,23 @@ const TESTS: Test[] = [
     },
   },
   {
+    id: "text-colour-in-box",
+    audit: "B2 follow-up",
+    name: "Text in a tight box keeps its own colour (red link in a white box on a red section)",
+    run: async () => {
+      const red = "0.72 0.2 0.18 rg";
+      const pg = await rebuild(`${red} 0 0 400 300 re f 1 g 38 192 160 26 re f ${red} BT /F1 18 Tf 42 198 Td (name@ethz.ch) Tj ET`);
+      const b = pg.blocks.find((x) => x.text.includes("name@ethz.ch"));
+      if (!b) return "the link is not an editable block";
+      const [r, g, bl] = pixel(pg.background, 40, 205);
+      if (!(r > 240 && g > 240 && bl > 240)) return "test PDF: the white box is not in the background";
+      const m = /rgb\((\d+),\s*(\d+),\s*(\d+)\)/.exec(b.color || "");
+      const shown = m ? [+m[1], +m[2], +m[3]] : b.dark ? [255, 255, 255] : [11, 11, 12];
+      const dist = Math.hypot(shown[0] - 184, shown[1] - 51, shown[2] - 46);
+      return dist < 80 ? true : `the text would show in rgb(${shown.join(",")}) instead of red`;
+    },
+  },
+  {
     id: "glyph-rects-removed",
     audit: "B1/B2",
     name: "Letters drawn as thin rectangles (Figma 'l') are still removed from the background",
