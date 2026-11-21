@@ -1,0 +1,354 @@
+{
+  "recordedAt": "2026-11-21T10:24:26.871Z",
+  "pdfjs": "6.3.289",
+  "note": "Reference results of the PDF lab",
+  "rows": [
+    {
+      "name": "BCC.pdf",
+      "page": 1,
+      "bg": 0,
+      "pieces": 0.649,
+      "text": 95.59,
+      "blocks": 68,
+      "missing": 23,
+      "extra": 0,
+      "report": {
+        "mixed_styles": 9,
+        "icons_as_text": 20,
+        "text_as_shapes": 68,
+        "rotated_text": 1,
+        "transparency": 7
+      },
+      "blocksHash": "ea5883c9",
+      "kb": 5369,
+      "ms": 2216,
+      "diag": {
+        "ops": 2323,
+        "filterCalls": 2323,
+        "glyphOps": 68,
+        "glyphRects": 0,
+        "droppedBlocks": 0,
+        "faintDropped": 0,
+        "ctmRotatedText": 0
+      }
+    },
+    {
+      "name": "Citadelle accueil 01.pdf",
+      "page": 1,
+      "bg": 0,
+      "pieces": 0.041,
+      "text": 100,
+      "blocks": 46,
+      "missing": 3,
+      "extra": 0,
+      "report": {
+        "hidden_text": 1,
+        "mixed_styles": 7,
+        "text_as_shapes": 44,
+        "transparency": 6
+      },
+      "blocksHash": "8e800da8",
+      "kb": 10975,
+      "ms": 2193,
+      "diag": {
+        "ops": 1733,
+        "filterCalls": 1733,
+        "glyphOps": 44,
+        "glyphRects": 0,
+        "droppedBlocks": 1,
+        "faintDropped": 0,
+        "ctmRotatedText": 0
+      }
+    },
+    {
+      "name": "Citadelle accueil 02.pdf",
+      "page": 1,
+      "bg": 0,
+      "pieces": 0.0471,
+      "text": 100,
+      "blocks": 42,
+      "missing": 0,
+      "extra": 0,
+      "report": {
+        "mixed_styles": 6,
+        "text_as_shapes": 39,
+        "transparency": 5
+      },
+      "blocksHash": "f0046454",
+      "kb": 11343,
+      "ms": 1943,
+      "diag": {
+        "ops": 1623,
+        "filterCalls": 1623,
+        "glyphOps": 39,
+        "glyphRects": 0,
+        "droppedBlocks": 0,
+        "faintDropped": 0,
+        "ctmRotatedText": 0
+      }
+    },
+    {
+      "name": "ETHZ.pdf",
+      "page": 1,
+      "bg": 0.0199,
+      "pieces": 0.0354,
+      "text": 100,
+      "blocks": 51,
+      "missing": 11,
+      "extra": 0,
+      "report": {
+        "mixed_styles": 9,
+        "icons_as_text": 11,
+        "text_as_shapes": 59,
+        "transparency": 13,
+        "hidden_images": 5
+      },
+      "blocksHash": "b92c36ed",
+      "kb": 17737,
+      "ms": 3575,
+      "diag": {
+        "ops": 2909,
+        "filterCalls": 2909,
+        "glyphOps": 59,
+        "glyphRects": 4,
+        "droppedBlocks": 0,
+        "faintDropped": 0,
+        "ctmRotatedText": 0
+      }
+    },
+    {
+      "name": "FOndation borel.pdf",
+      "page": 1,
+      "bg": 0,
+      "pieces": 0.0518,
+      "text": 98.33,
+      "blocks": 60,
+      "missing": 0,
+      "extra": 0,
+      "report": {
+        "mixed_styles": 7,
+        "text_as_shapes": 56,
+        "transparency": 6,
+        "hidden_images": 6
+      },
+      "blocksHash": "425cb4c6",
+      "kb": 19133,
+      "ms": 2626,
+      "diag": {
+        "ops": 2143,
+        "filterCalls": 2143,
+        "glyphOps": 56,
+        "glyphRects": 0,
+        "droppedBlocks": 0,
+        "faintDropped": 0,
+        "ctmRotatedText": 0
+      }
+    },
+    {
+      "name": "GDS home.pdf",
+      "page": 1,
+      "bg": 0.0138,
+      "pieces": 0.4003,
+      "text": 97.78,
+      "blocks": 90,
+      "missing": 0,
+      "extra": 0,
+      "report": {
+        "mixed_styles": 13,
+        "icons_as_text": 2,
+        "text_as_shapes": 96,
+        "transparency": 16,
+        "hidden_images": 6
+      },
+      "blocksHash": "b69b6da4",
+      "kb": 24806,
+      "ms": 5498,
+      "diag": {
+        "ops": 4888,
+        "filterCalls": 4888,
+        "glyphOps": 96,
+        "glyphRects": 2,
+        "droppedBlocks": 0,
+        "faintDropped": 0,
+        "ctmRotatedText": 0
+      }
+    },
+    {
+      "name": "Insieme Home.pdf",
+      "page": 1,
+      "bg": 0.0355,
+      "pieces": 0.3614,
+      "text": 100,
+      "blocks": 180,
+      "missing": 0,
+      "extra": 0,
+      "report": {
+        "mixed_styles": 9,
+        "text_as_shapes": 180,
+        "masked_images": 1,
+        "transparency": 45,
+        "hidden_images": 3
+      },
+      "blocksHash": "8a6f05e",
+      "kb": 31947,
+      "ms": 14638,
+      "diag": {
+        "ops": 8133,
+        "filterCalls": 8133,
+        "glyphOps": 180,
+        "glyphRects": 0,
+        "droppedBlocks": 0,
+        "faintDropped": 0,
+        "ctmRotatedText": 0
+      }
+    },
+    {
+      "name": "Nature renaissance.pdf",
+      "page": 1,
+      "bg": 0.0029,
+      "pieces": 0.3795,
+      "text": 90.28,
+      "blocks": 72,
+      "missing": 18,
+      "extra": 0,
+      "report": {
+        "mixed_styles": 12,
+        "icons_as_text": 18,
+        "text_as_shapes": 81,
+        "transparency": 25,
+        "hidden_images": 6
+      },
+      "blocksHash": "35963368",
+      "kb": 29686,
+      "ms": 7486,
+      "diag": {
+        "ops": 4108,
+        "filterCalls": 4108,
+        "glyphOps": 81,
+        "glyphRects": 0,
+        "droppedBlocks": 0,
+        "faintDropped": 0,
+        "ctmRotatedText": 0
+      }
+    },
+    {
+      "name": "SEF.pdf",
+      "page": 1,
+      "bg": 0,
+      "pieces": 0.0927,
+      "text": 100,
+      "blocks": 64,
+      "missing": 0,
+      "extra": 0,
+      "report": {
+        "mixed_styles": 3,
+        "text_as_shapes": 64,
+        "masked_images": 2,
+        "transparency": 15,
+        "hidden_images": 7
+      },
+      "blocksHash": "27f85f69",
+      "kb": 29461,
+      "ms": 6689,
+      "diag": {
+        "ops": 2362,
+        "filterCalls": 2362,
+        "glyphOps": 64,
+        "glyphRects": 0,
+        "droppedBlocks": 0,
+        "faintDropped": 0,
+        "ctmRotatedText": 0
+      }
+    },
+    {
+      "name": "Synova.pdf",
+      "page": 1,
+      "bg": 0.0002,
+      "pieces": 0.8693,
+      "text": 95.6,
+      "blocks": 91,
+      "missing": 49,
+      "extra": 2,
+      "report": {
+        "hidden_text": 6,
+        "mixed_styles": 10,
+        "icons_as_text": 4,
+        "text_as_shapes": 92,
+        "masked_images": 5,
+        "transparency": 57,
+        "hidden_images": 1
+      },
+      "blocksHash": "f7a9e56a",
+      "kb": 36518,
+      "ms": 30081,
+      "diag": {
+        "ops": 5951,
+        "filterCalls": 5951,
+        "glyphOps": 92,
+        "glyphRects": 0,
+        "droppedBlocks": 6,
+        "faintDropped": 0,
+        "ctmRotatedText": 0
+      }
+    },
+    {
+      "name": "WIseball.pdf",
+      "page": 1,
+      "bg": 0.003,
+      "pieces": 0.0037,
+      "text": 93.75,
+      "blocks": 32,
+      "missing": 19,
+      "extra": 0,
+      "report": {
+        "mixed_styles": 2,
+        "text_as_shapes": 42,
+        "rotated_text": 4,
+        "masked_images": 1,
+        "transparency": 19
+      },
+      "blocksHash": "9a56b178",
+      "kb": 2804,
+      "ms": 5725,
+      "diag": {
+        "ops": 1675,
+        "filterCalls": 1675,
+        "glyphOps": 42,
+        "glyphRects": 3,
+        "droppedBlocks": 0,
+        "faintDropped": 0,
+        "ctmRotatedText": 0
+      }
+    },
+    {
+      "name": "capital transmission.pdf",
+      "page": 1,
+      "bg": 0.1964,
+      "pieces": 2.297,
+      "text": 92.42,
+      "blocks": 66,
+      "missing": 120,
+      "extra": 0,
+      "report": {
+        "hidden_text": 2,
+        "mixed_styles": 13,
+        "icons_as_text": 16,
+        "text_as_shapes": 75,
+        "transparency": 22,
+        "hidden_images": 5
+      },
+      "blocksHash": "e9b4c7d1",
+      "kb": 30803,
+      "ms": 7332,
+      "diag": {
+        "ops": 2986,
+        "filterCalls": 2986,
+        "glyphOps": 75,
+        "glyphRects": 1,
+        "droppedBlocks": 2,
+        "faintDropped": 0,
+        "ctmRotatedText": 0
+      }
+    }
+  ]
+}

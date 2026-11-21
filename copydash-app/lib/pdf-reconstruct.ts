@@ -84,6 +84,25 @@ export interface ReconstructedPage {
   report: ReportItem[];
   /** Sample lines of each text style, for font detection (lib/font-detect). Not saved. */
   styles: StyleSample[];
+  /** Counters for the PDF lab (not saved): what the engine decided on this page. */
+  diagnostics?: PageDiagnostics;
+}
+
+export interface PageDiagnostics {
+  /** Operations in the page's operator list. */
+  ops: number;
+  /** Times pdf.js asked the filter about an operation during the background render (should equal `ops`). */
+  filterCalls: number;
+  /** Paths removed from the background as text drawn as shapes. */
+  glyphOps: number;
+  /** …of which rectangles or rounded rectangles (underlines, badges, or letters like "l"). */
+  glyphRects: number;
+  /** Text blocks left out as not visible on the page. */
+  droppedBlocks: number;
+  /** …of which have some ink, just under the visibility threshold (light text). */
+  faintDropped: number;
+  /** Text operations removed from the background while the transform (not the text matrix) rotates them. */
+  ctmRotatedText: number;
 }
 
 type Mat = number[];
@@ -180,6 +199,30 @@ function withGate<T>(allow: (op: number) => boolean, run: () => Promise<T>): Pro
     PAINT_METHODS.forEach((m, k) => (proto[m] = originals[k]));
   });
 }
+
+type PdfPage = Awaited<ReturnType<Awaited<ReturnType<Pdfjs["getDocument"]>["promise"]>["getPage"]>>;
+type PdfRenderTask = ReturnType<PdfPage["render"]>;
+
+/** Renders `page` on `canvas` with only the operations `allow` accepts painting (PDF lab tests). */
+function gatedRender(page: PdfPage, canvas: HTMLCanvasElement, viewport: ReturnType<PdfPage["getViewport"]>, allow: (op: number) => boolean, onTask?: (t: PdfRenderTask) => void) {
+  return withGate(allow, () => {
+    const task = page.render({
+      canvasContext: canvas.getContext("2d") as CanvasRenderingContext2D,
+      viewport,
+      canvas,
+      background: "rgba(0,0,0,0)",
+      operationsFilter: (i: number) => {
+        curOp = i;
+        return true;
+      },
+    });
+    onTask?.(task);
+    return task.promise;
+  });
+}
+
+/** Internals exposed to the PDF lab's self-tests (app/dev/pdf-lab/self-tests). */
+export const __lab = { withGate, gatedRender };
 
 function canvasOf(w: number, h: number) {
   const c = document.createElement("canvas");
@@ -361,6 +404,9 @@ export async function reconstructPdf(
     let lastMask: MaskDef | null = null;
     const markComplex = () => maskDefs.forEach((m) => (m.simple = false));
     let transparency = 0;
+    let glyphRects = 0;
+    let ctmRotatedText = 0;
+    const rotates = (m: Mat) => Math.abs(m[1]) > 0.01 * Math.abs(m[0]) || Math.abs(m[2]) > 0.01 * Math.abs(m[3]);
     for (let i = 0; i < F.length; i++) {
       const f = F[i];
       const a = A[i] as unknown[];
@@ -428,7 +474,10 @@ export async function reconstructPdf(
             // Text drawn as outlines: mostly covered by text boxes, or partly
             // covered and as intricate as lettering (a paragraph drawn as one
             // shape leaves its blank lines uncovered; a button is a few segments).
-            if (hit / 64 >= 0.6 || (hit / 64 >= 0.35 && pathCommands(pathData) >= 60)) glyphOps.add(i);
+            if (hit / 64 >= 0.6 || (hit / 64 >= 0.35 && pathCommands(pathData) >= 60)) {
+              glyphOps.add(i);
+              if (isRectLike(pathData, mm)) glyphRects++;
+            }
           }
         }
         g.pendingClip = false;
@@ -451,6 +500,8 @@ export async function reconstructPdf(
       } else if (isText(f) && textRotated) {
         rotatedTextOps.add(i);
         opBox.set(i, inter(g.clip, pageBox));
+      } else if (isText(f) && rotates(g.ctm)) {
+        ctmRotatedText++;
       }
     }
 
@@ -586,6 +637,7 @@ export async function reconstructPdf(
     // Text that isn't actually visible on the page (a hidden carousel slide,
     // text under a picture) has no ink in the original: leave it out.
     // The page minus the text that becomes editable, in one gated render.
+    let filterCalls = 0;
     const background = canvasOf(W, H);
     const bctx = background.getContext("2d", { willReadFrequently: true }) as CanvasRenderingContext2D;
     bctx.fillStyle = "#fff";
@@ -603,6 +655,7 @@ export async function reconstructPdf(
             background: "rgba(0,0,0,0)",
             operationsFilter: (i: number) => {
               curOp = i;
+              filterCalls++;
               return true;
             },
           }).promise,
@@ -611,18 +664,24 @@ export async function reconstructPdf(
     }
     const fd = bctx.getImageData(0, 0, W, H).data;
     const od = octx.getImageData(0, 0, W, H).data;
+    let faintDropped = 0;
     const blocks = candidates.filter((b) => {
       let ink = 0;
+      let faint = 0;
       let n = 0;
       const step = Math.max(1, Math.floor(Math.min(b.w, b.h) / 12));
       for (let y = Math.max(0, Math.floor(b.top)); y < Math.min(H, b.top + b.h); y += step) {
         for (let x = Math.max(0, Math.floor(b.x)); x < Math.min(W, b.x + b.w); x += step) {
           const i = (y * W + x) * 4;
           n++;
-          if (Math.abs(od[i] - fd[i]) + Math.abs(od[i + 1] - fd[i + 1]) + Math.abs(od[i + 2] - fd[i + 2]) > 60) ink++;
+          const d = Math.abs(od[i] - fd[i]) + Math.abs(od[i + 1] - fd[i + 1]) + Math.abs(od[i + 2] - fd[i + 2]);
+          if (d > 60) ink++;
+          if (d > 24) faint++;
         }
       }
-      return n > 0 && ink / n > 0.02;
+      const keep = n > 0 && ink / n > 0.02;
+      if (!keep && n > 0 && faint / n > 0.02) faintDropped++;
+      return keep;
     });
     const hiddenText = candidates.length - blocks.length;
     // Figma states text runs a little wider than they draw (a run's last
@@ -724,7 +783,8 @@ export async function reconstructPdf(
         }),
     );
 
-    out.push({ pageIndex: p - 1, scale, w: W, h: H, layers, images, blocks, original, background, report, styles });
+    const diagnostics: PageDiagnostics = { ops: F.length, filterCalls, glyphOps: glyphOps.size, glyphRects, droppedBlocks: hiddenText, faintDropped, ctmRotatedText };
+    out.push({ pageIndex: p - 1, scale, w: W, h: H, layers, images, blocks, original, background, report, styles, diagnostics });
     page.cleanup();
   }
   return out;

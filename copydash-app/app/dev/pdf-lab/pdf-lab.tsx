@@ -12,6 +12,8 @@ import { FONT_NAMES, cssFamily, useDesignFonts, withFont, type DesignFonts } fro
 import { detectPdfFonts, type DetectedStyle } from "@/lib/font-detect";
 import { FontStep } from "@/components/features/font-step";
 import { Modal } from "@/components/ui/primitives";
+import { runSelfTests, type SelfTestResult } from "./self-tests";
+import { baseline, compareRuns, hashText, type Delta, type LabMetrics } from "./baseline";
 
 // Local test bench for PDF → reconstructed page. Runs one PDF or every
 // reference PDF (~/Desktop/Test, served by ./files), and scores each page:
@@ -21,6 +23,8 @@ import { Modal } from "@/components/ui/primitives";
 //     position, colour) — see ./text-check;
 //   - words: PDF words missing from the blocks, or doubled.
 // Results are on window.__labSummary for inspection from the console.
+// A full run is compared with the committed reference results (./baseline,
+// "Save as baseline" replaces them); "Run self-tests" runs ./self-tests.
 
 type Overlay = "off" | "fade" | "difference" | "blink";
 
@@ -367,6 +371,7 @@ export function PdfLab() {
   const [fonts, setFonts] = React.useState<Record<string, DetectedStyle[]>>({});
   const [applyFonts, setApplyFonts] = React.useState(true);
   const [stepOpen, setStepOpen] = React.useState(false);
+  const [selfTests, setSelfTests] = React.useState<SelfTestResult[] | null>(null);
   // What the import would save: the detected font of each style.
   const designFontsOf = (name: string): DesignFonts | null => {
     const list = fonts[name];
@@ -506,6 +511,43 @@ export function PdfLab() {
           };
         }),
   );
+  // Rows in the shape of the reference results (./baseline.json).
+  const metrics: LabMetrics[] = rows
+    .filter((r) => r.bg !== undefined)
+    .map((r) => {
+      const pg = docs[r.di].pages[r.page - 1].pg;
+      return {
+        name: r.name,
+        page: r.page,
+        bg: +(r.bg ?? 0).toFixed(4),
+        pieces: +(r.pieces ?? 0).toFixed(4),
+        text: r.text === undefined ? null : +r.text.toFixed(2),
+        blocks: r.blocks ?? 0,
+        missing: r.missing ?? 0,
+        extra: r.extra ?? 0,
+        report: Object.fromEntries(pg.report.map((x) => [x.code, x.count ?? 1])),
+        blocksHash: hashText(pg.blocks.map((b) => `${b.id}:${b.text}`).join("¦")),
+        kb: r.kb ?? null,
+        ms: r.ms ?? 0,
+        diag: pg.diagnostics ? { ...pg.diagnostics } : undefined,
+      };
+    });
+  const complete = metrics.length > 0 && metrics.every((m) => m.text !== null) && !busy;
+  const deltas: Delta[] = complete && baseline.rows.length ? compareRuns(metrics, baseline.rows) : [];
+  const saveRun = async (as: "baseline" | null, name = "run") => {
+    const body = { recordedAt: new Date().toISOString(), pdfjs: (await getPdfjs()).version, note: as === "baseline" ? "Reference results of the PDF lab" : name, rows: metrics };
+    const res = await fetch(`/dev/pdf-lab/results?${as ? "as=baseline" : `name=${encodeURIComponent(name)}`}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const out = (await res.json()) as { file?: string; error?: string };
+    setStatus(out.file ? `Saved to ${out.file}` : `Save failed: ${out.error}`);
+  };
+  const runTests = async () => {
+    setBusy(true);
+    const res = await runSelfTests(setStatus);
+    setSelfTests(res);
+    setStatus(`Self-tests: ${res.filter((t) => t.ok).length}/${res.length} passed`);
+    setBusy(false);
+  };
+
   // pdf.js itself, for experiments from the console.
   React.useEffect(() => {
     getPdfjs().then((p) => ((window as unknown as { __pdfjs: unknown }).__pdfjs = p));
@@ -514,6 +556,7 @@ export function PdfLab() {
     (window as unknown as { __labSummary: unknown }).__labSummary = rows;
     (window as unknown as { __labDocs: unknown }).__labDocs = docs;
     (window as unknown as { __labChecks: unknown }).__labChecks = checks;
+    Object.assign(window, { __labMetrics: metrics, __labCompare: deltas, __labSelfTests: selfTests, __labSave: saveRun });
   });
 
   const scored = rows.filter((r) => r.text !== undefined);
@@ -540,6 +583,23 @@ export function PdfLab() {
         >
           Detect fonts
         </button>
+        <button
+          id="lab-selftest"
+          disabled={busy}
+          onClick={runTests}
+          style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #7f22fe", background: "#fff", color: "#7f22fe", cursor: busy ? "default" : "pointer", fontWeight: 600 }}
+        >
+          Run self-tests
+        </button>
+        <button
+          id="lab-save-baseline"
+          disabled={!complete}
+          onClick={() => saveRun("baseline")}
+          title="Replace app/dev/pdf-lab/baseline.json with this run"
+          style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #ccc", background: "#fff", color: complete ? "#333" : "#aaa", cursor: complete ? "pointer" : "default" }}
+        >
+          Save as baseline
+        </button>
         <input
           type="file"
           multiple
@@ -551,6 +611,58 @@ export function PdfLab() {
       <p id="lab-status" style={{ margin: "8px 0" }}>
         {status}
       </p>
+
+      {selfTests && (
+        <div id="lab-selftests" style={{ margin: "12px 0" }}>
+          <b>
+            Self-tests: {selfTests.filter((t) => t.ok).length}/{selfTests.length} passed
+          </b>
+          <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12, marginTop: 6 }}>
+            <tbody>
+              {selfTests.map((t) => (
+                <tr key={t.id}>
+                  <td style={{ ...cell, ...bad(!t.ok), width: 40 }}>{t.ok ? "✓" : "✗"}</td>
+                  <td style={{ ...cell, width: 70, color: "#666" }}>{t.audit}</td>
+                  <td style={cell}>{t.name}</td>
+                  <td style={{ ...cell, ...bad(!t.ok) }}>{t.detail}</td>
+                  <td style={{ ...cell, color: "#888", width: 60 }}>{t.ms} ms</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {complete && (
+        <div id="lab-compare" style={{ margin: "12px 0" }}>
+          <b>Compared with the baseline</b>{" "}
+          {baseline.rows.length ? (
+            <>
+              ({baseline.recordedAt.slice(0, 10)}, pdf.js {baseline.pdfjs}) —{" "}
+              <span style={bad(deltas.some((d) => d.verdict === "regression"))}>{deltas.filter((d) => d.verdict === "regression").length} regressions</span>,{" "}
+              {deltas.filter((d) => d.verdict === "improvement").length} improvements, {deltas.filter((d) => d.verdict === "change").length} other changes
+            </>
+          ) : (
+            "— no baseline recorded yet"
+          )}
+          {deltas.length > 0 && (
+            <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12, marginTop: 6 }}>
+              <tbody>
+                {deltas.map((d, i) => (
+                  <tr key={i}>
+                    <td style={cell}>{d.name}</td>
+                    <td style={cell}>{d.field}</td>
+                    <td style={cell}>
+                      {d.before} → {d.after}
+                    </td>
+                    <td style={{ ...cell, ...bad(d.verdict === "regression"), color: d.verdict === "improvement" ? "#2e7d32" : undefined }}>{d.verdict}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
 
       {Object.keys(fonts).length > 0 && (
         <div id="lab-fonts" style={{ margin: "12px 0" }}>
