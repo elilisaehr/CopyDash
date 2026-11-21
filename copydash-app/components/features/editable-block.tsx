@@ -300,7 +300,13 @@ export function EditableBlock({
         }}
         onBlur={(e) => {
           setFocused(false);
-          const trimmed = (e.currentTarget.textContent || "").replace(/\s+/g, " ").trim();
+          // Spaces collapse, line breaks stay (a heading keeps the designer's breaks).
+          const trimmed = (e.currentTarget.textContent || "")
+            .replace(/[^\S\n]+/g, " ")
+            .replace(/ ?\n ?/g, "\n")
+            .trim();
+          // Clicked in and out without editing: nothing to save.
+          if (value === undefined && trimmed === block.text) return;
           onChange(block.id, trimmed);
           onCommit?.(block.id, trimmed);
         }}

@@ -95,11 +95,13 @@ export interface PageDiagnostics {
   filterCalls: number;
   /** Paths removed from the background as text drawn as shapes. */
   glyphOps: number;
-  /** …of which rectangles or rounded rectangles (underlines, badges, or letters like "l"). */
+  /** …of which rectangles or rounded rectangles (letters like "l", "I", "-"). */
   glyphRects: number;
+  /** Rectangles over text kept in the background as underlines or as the badge behind a label. */
+  keptRects: number;
   /** Text blocks left out as not visible on the page. */
   droppedBlocks: number;
-  /** …of which have some ink, just under the visibility threshold (light text). */
+  /** Light text blocks (ink between the old visibility threshold 60 and 24) that are now kept as visible. */
   faintDropped: number;
   /** Text operations removed from the background while the transform (not the text matrix) rotates them. */
   ctmRotatedText: number;
@@ -179,25 +181,46 @@ function pathCommands(data: ArrayLike<number> | null | undefined): number {
 // ── paint gate ──────────────────────────────────────────────────────────
 // While `gate` is set, canvas paint calls only go through for the operation
 // pdf.js is running (`curOp`, recorded by operationsFilter) when gate allows it.
+// `gate` and `curOp` are shared, so gated runs never overlap: each waits for
+// the previous one (a gated run must not start another one, it would wait forever).
 let gate: ((op: number) => boolean) | null = null;
 let curOp = -1;
+let gateQueue: Promise<unknown> = Promise.resolve();
 const PAINT_METHODS = ["fill", "stroke", "drawImage", "fillRect", "strokeRect", "fillText", "strokeText", "putImageData"] as const;
+/** The 2D context prototypes pdf.js may paint with (OffscreenCanvas too, should a version use it for scratch canvases). */
+const paintPrototypes = () =>
+  [CanvasRenderingContext2D, typeof OffscreenCanvasRenderingContext2D === "undefined" ? null : OffscreenCanvasRenderingContext2D]
+    .filter((c) => !!c)
+    .map((c) => c!.prototype as unknown as Record<string, (...a: unknown[]) => unknown>);
+
 function withGate<T>(allow: (op: number) => boolean, run: () => Promise<T>): Promise<T> {
-  const proto = CanvasRenderingContext2D.prototype as unknown as Record<string, (...a: unknown[]) => unknown>;
-  const originals = PAINT_METHODS.map((m) => proto[m]);
-  PAINT_METHODS.forEach((m, k) => {
-    const orig = originals[k];
-    proto[m] = function (this: unknown, ...args: unknown[]) {
-      if (gate && (curOp < 0 || !gate(curOp))) return;
-      return orig.apply(this, args);
-    };
-  });
+  const next = gateQueue.then(() => gatedRun(allow, run));
+  gateQueue = next.catch(() => undefined);
+  return next;
+}
+
+async function gatedRun<T>(allow: (op: number) => boolean, run: () => Promise<T>): Promise<T> {
+  const protos = paintPrototypes();
+  const originals = protos.map((proto) => PAINT_METHODS.map((m) => proto[m]));
+  protos.forEach((proto, p) =>
+    PAINT_METHODS.forEach((m, k) => {
+      const orig = originals[p][k];
+      proto[m] = function (this: unknown, ...args: unknown[]) {
+        if (gate && (curOp < 0 || !gate(curOp))) return;
+        return orig.apply(this, args);
+      };
+    }),
+  );
   gate = allow;
   curOp = -1;
-  return run().finally(() => {
+  try {
+    // Awaited inside the try: a run that throws before returning its promise restores too.
+    return await run();
+  } finally {
     gate = null;
-    PAINT_METHODS.forEach((m, k) => (proto[m] = originals[k]));
-  });
+    curOp = -1;
+    protos.forEach((proto, p) => PAINT_METHODS.forEach((m, k) => (proto[m] = originals[p][k])));
+  }
 }
 
 type PdfPage = Awaited<ReturnType<Awaited<ReturnType<Pdfjs["getDocument"]>["promise"]>["getPage"]>>;
@@ -223,6 +246,18 @@ function gatedRender(page: PdfPage, canvas: HTMLCanvasElement, viewport: ReturnT
 
 /** Internals exposed to the PDF lab's self-tests (app/dev/pdf-lab/self-tests). */
 export const __lab = { withGate, gatedRender };
+
+/**
+ * The pdf.js in use doesn't behave as this engine was validated with
+ * (pdfjs-dist 6.3.289, pinned in package.json). The import then falls back
+ * to the classic PDF editor instead of saving a wrong page.
+ */
+export class PdfEngineMismatch extends Error {
+  constructor(detail: string) {
+    super(`PDF engine and pdf.js don't match (${detail}).`);
+    this.name = "PdfEngineMismatch";
+  }
+}
 
 function canvasOf(w: number, h: number) {
   const c = document.createElement("canvas");
@@ -362,24 +397,27 @@ export async function reconstructPdf(
     const items = textItems.filter((t) => !isRotated(t));
     const rotatedItems = textItems.filter((t) => t.str?.trim() && isRotated(t)).length;
     const candidates = buildBlocks(items, tc.styles as Record<string, PdfTextStyle>, vp, p - 1, octx, (m1, m2) => pdfjs.Util.transform(m1, m2), true);
-    const textBoxes: Box[] = items
+    const textBoxes: { box: Box; fh: number }[] = items
       .filter((t) => t.str && t.str.trim())
       .map((t) => {
         const m = pdfjs.Util.transform(vp.transform, t.transform);
         const fh = Math.hypot(m[2], m[3]);
-        return [m[4] - 1, m[5] - fh * 1.05, m[4] + t.width * scale + 1, m[5] + fh * 0.35];
+        return { box: [m[4] - 1, m[5] - fh * 1.05, m[4] + t.width * scale + 1, m[5] + fh * 0.35], fh };
       });
     // Text boxes painted on a coarse grid (4px cells): a lookup instead of a scan of every box.
+    // Each cell keeps the largest type size (px) of the text over it (0 = no text).
     const CELL = 4;
     const gw = Math.ceil(W / CELL);
     const gh = Math.ceil(H / CELL);
-    const textGrid = new Uint8Array(gw * gh);
-    for (const t of textBoxes) {
+    const textGrid = new Float32Array(gw * gh);
+    for (const { box: t, fh } of textBoxes) {
       const cx0 = Math.max(0, Math.floor(t[0] / CELL));
       const cx1 = Math.min(gw - 1, Math.floor(t[2] / CELL));
-      for (let cy = Math.max(0, Math.floor(t[1] / CELL)); cy <= Math.min(gh - 1, Math.floor(t[3] / CELL)); cy++) textGrid.fill(1, cy * gw + cx0, cy * gw + cx1 + 1);
+      for (let cy = Math.max(0, Math.floor(t[1] / CELL)); cy <= Math.min(gh - 1, Math.floor(t[3] / CELL)); cy++)
+        for (let c = cy * gw + cx0; c <= cy * gw + cx1; c++) textGrid[c] = Math.max(textGrid[c], fh);
     }
-    const inText = (x: number, y: number) => x >= 0 && y >= 0 && x < W && y < H && textGrid[Math.floor(y / CELL) * gw + Math.floor(x / CELL)] === 1;
+    /** Type size (px) of the text at x, y; 0 outside text. */
+    const textAt = (x: number, y: number) => (x >= 0 && y >= 0 && x < W && y < H ? textGrid[Math.floor(y / CELL) * gw + Math.floor(x / CELL)] : 0);
     const pageBox: Box = [0, 0, W, H];
 
     // Walk the operator list: current transform, clip, opacity; find text drawn
@@ -405,6 +443,7 @@ export async function reconstructPdf(
     const markComplex = () => maskDefs.forEach((m) => (m.simple = false));
     let transparency = 0;
     let glyphRects = 0;
+    let keptRects = 0;
     let ctmRotatedText = 0;
     const rotates = (m: Mat) => Math.abs(m[1]) > 0.01 * Math.abs(m[0]) || Math.abs(m[2]) > 0.01 * Math.abs(m[3]);
     for (let i = 0; i < F.length; i++) {
@@ -449,6 +488,9 @@ export async function reconstructPdf(
         g.pendingClip = true;
       } else if (f === O.constructPath) {
         const mm = a[2] as ArrayLike<number> | null;
+        // pdf.js ≥ 5 layout: [paint op, [path data], min/max box]. Another layout means another pdf.js.
+        if (typeof a[0] !== "number" || !(a[1] === null || Array.isArray(a[1])) || !(mm === null || mm === undefined || mm.length === 4))
+          throw new PdfEngineMismatch("constructPath arguments are not in the expected layout");
         const pathData = (a[1] as (ArrayLike<number> | null)[] | null)?.[0];
         if (mm) {
           const b = boxOf(g.ctm, mm[0], mm[1], mm[2], mm[3]);
@@ -468,15 +510,33 @@ export async function reconstructPdf(
           }
           if (a[0] !== O.endPath && !empty(b) && !maskDepth.includes(true)) {
             let hit = 0;
+            let fh = 0;
             const sx = (b[2] - b[0]) / 8;
             const sy = (b[3] - b[1]) / 8;
-            for (let gx = 0; gx < 8; gx++) for (let gy = 0; gy < 8; gy++) if (inText(b[0] + sx * (gx + 0.5), b[1] + sy * (gy + 0.5))) hit++;
+            for (let gx = 0; gx < 8; gx++)
+              for (let gy = 0; gy < 8; gy++) {
+                const t = textAt(b[0] + sx * (gx + 0.5), b[1] + sy * (gy + 0.5));
+                if (t) {
+                  hit++;
+                  fh = Math.max(fh, t);
+                }
+              }
             // Text drawn as outlines: mostly covered by text boxes, or partly
             // covered and as intricate as lettering (a paragraph drawn as one
             // shape leaves its blank lines uncovered; a button is a few segments).
             if (hit / 64 >= 0.6 || (hit / 64 >= 0.35 && pathCommands(pathData) >= 60)) {
-              glyphOps.add(i);
-              if (isRectLike(pathData, mm)) glyphRects++;
+              // A (rounded) rectangle wider than a letter is no letter: thin, it is
+              // an underline or a strike-through; at least a line tall, it is the
+              // badge, button or highlight behind the text. Both stay in the
+              // background. Letters that are rectangles ("l", "I", "-", "—") are
+              // narrower than 1.5 em.
+              const w = b[2] - b[0];
+              const h = b[3] - b[1];
+              if (isRectLike(pathData, mm) && w >= 1.5 * fh && (h <= 0.15 * fh || h >= 0.9 * fh)) keptRects++;
+              else {
+                glyphOps.add(i);
+                if (isRectLike(pathData, mm)) glyphRects++;
+              }
             }
           }
         }
@@ -493,7 +553,9 @@ export async function reconstructPdf(
         if (maskDefs.length) markComplex();
         opBox.set(i, inter(g.clip, pageBox));
       } else if (f === O.beginText) {
-        textRotated = false;
+        // Text can be turned by the transform alone (cm before BT, no Tm): the
+        // text matrix starts as identity, so the transform decides until a Tm.
+        textRotated = rotates(g.ctm);
       } else if (f === O.setTextMatrix) {
         const m = mul(g.ctm, Array.from(a[0] as ArrayLike<number>));
         textRotated = Math.abs(m[1]) > 0.01 * Math.abs(m[0]) || Math.abs(m[2]) > 0.01 * Math.abs(m[3]);
@@ -662,6 +724,9 @@ export async function reconstructPdf(
       );
       bctx.drawImage(textless, 0, 0);
     }
+    // The gate maps paint calls to operator indices: pdf.js must have run exactly
+    // the operator list analysed above, one filter call per operation.
+    if (filterCalls !== F.length) throw new PdfEngineMismatch(`pdf.js ran ${filterCalls} operations, the page has ${F.length}`);
     const fd = bctx.getImageData(0, 0, W, H).data;
     const od = octx.getImageData(0, 0, W, H).data;
     let faintDropped = 0;
@@ -679,8 +744,11 @@ export async function reconstructPdf(
           if (d > 24) faint++;
         }
       }
-      const keep = n > 0 && ink / n > 0.02;
-      if (!keep && n > 0 && faint / n > 0.02) faintDropped++;
+      // Visible = some of its ink differs from the page without text. 24 (sum of
+      // RGB distances) still catches light text (#eee on white is 51) whose ops
+      // are removed from the background like any other; hidden text differs by 0.
+      const keep = n > 0 && faint / n > 0.02;
+      if (n > 0 && !(ink / n > 0.02) && keep) faintDropped++;
       return keep;
     });
     const hiddenText = candidates.length - blocks.length;
@@ -783,7 +851,7 @@ export async function reconstructPdf(
         }),
     );
 
-    const diagnostics: PageDiagnostics = { ops: F.length, filterCalls, glyphOps: glyphOps.size, glyphRects, droppedBlocks: hiddenText, faintDropped, ctmRotatedText };
+    const diagnostics: PageDiagnostics = { ops: F.length, filterCalls, glyphOps: glyphOps.size, glyphRects, keptRects, droppedBlocks: hiddenText, faintDropped, ctmRotatedText };
     out.push({ pageIndex: p - 1, scale, w: W, h: H, layers, images, blocks, original, background, report, styles, diagnostics });
     page.cleanup();
   }

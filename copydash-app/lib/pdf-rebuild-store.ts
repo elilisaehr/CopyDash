@@ -56,10 +56,11 @@ export const scaleFor = (pageWidth: number) => Math.max(1, Math.min(2, 2400 / pa
 const toBlob = (c: HTMLCanvasElement, type: string, quality?: number) =>
   new Promise<Blob>((resolve, reject) => c.toBlob((b) => (b ? resolve(b) : reject(new Error("Image encoding failed"))), type, quality));
 
+/** Whether any pixel is not fully opaque (such a picture is saved as PNG: JPEG would fill it with black). */
 export const hasAlpha = (c: HTMLCanvasElement) => {
   const d = c.getContext("2d")?.getImageData(0, 0, c.width, c.height).data;
   if (!d) return true;
-  for (let i = 3; i < d.length; i += 16) if (d[i] < 255) return true;
+  for (let i = 3; i < d.length; i += 4) if (d[i] < 255) return true;
   return false;
 };
 
