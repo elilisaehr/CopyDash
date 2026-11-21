@@ -185,9 +185,38 @@ function pathCommands(data: ArrayLike<number> | null | undefined): number {
 // pdf.js is running (`curOp`, recorded by operationsFilter) when gate allows it.
 // `gate` and `curOp` are shared, so gated runs never overlap: each waits for
 // the previous one (a gated run must not start another one, it would wait forever).
+// Only paint calls on `gatedCanvases` are filtered: the render's target and the
+// scratch canvases pdf.js makes for groups and masks (GatedCanvasFactory). The
+// app keeps drawing its own canvases while a render runs (pdf.js renders in
+// animation frames, so other code runs in between).
 let gate: ((op: number) => boolean) | null = null;
 let curOp = -1;
 let gateQueue: Promise<unknown> = Promise.resolve();
+const gatedCanvases = new WeakSet<object>();
+
+/** pdf.js canvas factory (getDocument `CanvasFactory`) whose canvases the gate filters. Same behaviour as pdf.js's DOMCanvasFactory. */
+class GatedCanvasFactory {
+  create(width: number, height: number) {
+    if (width <= 0 || height <= 0) throw new Error("Invalid canvas size");
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    gatedCanvases.add(canvas);
+    return { canvas, context: canvas.getContext("2d", { willReadFrequently: true }) };
+  }
+  reset(cc: { canvas: HTMLCanvasElement | null }, width: number, height: number) {
+    if (!cc.canvas) throw new Error("Canvas is not specified");
+    if (width <= 0 || height <= 0) throw new Error("Invalid canvas size");
+    cc.canvas.width = width;
+    cc.canvas.height = height;
+  }
+  destroy(cc: { canvas: HTMLCanvasElement | null; context: unknown }) {
+    if (!cc.canvas) throw new Error("Canvas is not specified");
+    cc.canvas.width = cc.canvas.height = 0;
+    cc.canvas = null;
+    cc.context = null;
+  }
+}
 const PAINT_METHODS = ["fill", "stroke", "drawImage", "fillRect", "strokeRect", "fillText", "strokeText", "putImageData"] as const;
 /** The 2D context prototypes pdf.js may paint with (OffscreenCanvas too, should a version use it for scratch canvases). */
 const paintPrototypes = () =>
@@ -195,24 +224,26 @@ const paintPrototypes = () =>
     .filter((c) => !!c)
     .map((c) => c!.prototype as unknown as Record<string, (...a: unknown[]) => unknown>);
 
-function withGate<T>(allow: (op: number) => boolean, run: () => Promise<T>): Promise<T> {
-  const next = gateQueue.then(() => gatedRun(allow, run));
+/** Runs `run` with paint calls on `targets` (and pdf.js's scratch canvases) filtered by `allow`. */
+function withGate<T>(allow: (op: number) => boolean, run: () => Promise<T>, targets: HTMLCanvasElement[] = []): Promise<T> {
+  const next = gateQueue.then(() => gatedRun(allow, run, targets));
   gateQueue = next.catch(() => undefined);
   return next;
 }
 
-async function gatedRun<T>(allow: (op: number) => boolean, run: () => Promise<T>): Promise<T> {
+async function gatedRun<T>(allow: (op: number) => boolean, run: () => Promise<T>, targets: HTMLCanvasElement[]): Promise<T> {
   const protos = paintPrototypes();
   const originals = protos.map((proto) => PAINT_METHODS.map((m) => proto[m]));
   protos.forEach((proto, p) =>
     PAINT_METHODS.forEach((m, k) => {
       const orig = originals[p][k];
-      proto[m] = function (this: unknown, ...args: unknown[]) {
-        if (gate && (curOp < 0 || !gate(curOp))) return;
+      proto[m] = function (this: { canvas?: object }, ...args: unknown[]) {
+        if (gate && this.canvas && gatedCanvases.has(this.canvas) && (curOp < 0 || !gate(curOp))) return;
         return orig.apply(this, args);
       };
     }),
   );
+  for (const t of targets) gatedCanvases.add(t);
   gate = allow;
   curOp = -1;
   try {
@@ -221,6 +252,7 @@ async function gatedRun<T>(allow: (op: number) => boolean, run: () => Promise<T>
   } finally {
     gate = null;
     curOp = -1;
+    for (const t of targets) gatedCanvases.delete(t);
     protos.forEach((proto, p) => PAINT_METHODS.forEach((m, k) => (proto[m] = originals[p][k])));
   }
 }
@@ -243,7 +275,7 @@ function gatedRender(page: PdfPage, canvas: HTMLCanvasElement, viewport: ReturnT
     });
     onTask?.(task);
     return task.promise;
-  });
+  }, [canvas]);
 }
 
 /** Internals exposed to the PDF lab's self-tests (app/dev/pdf-lab/self-tests). */
@@ -352,7 +384,7 @@ export async function reconstructPdf(
   /** Progress messages, e.g. for a status line. */
   onProgress?: (msg: string) => void,
 ): Promise<ReconstructedPage[]> {
-  const pdf = await pdfjs.getDocument({ data: data.slice(0) }).promise;
+  const pdf = await pdfjs.getDocument({ data: data.slice(0), CanvasFactory: GatedCanvasFactory }).promise;
   const O = pdfjs.OPS;
   const out: ReconstructedPage[] = [];
 
@@ -666,6 +698,7 @@ export async function reconstructPdf(
             (i) => !paints(i) || i === e.op,
             () =>
               page.render({ canvasContext: sctx, viewport: page.getViewport({ scale, offsetX: -x0, offsetY: -y0 }), canvas: shown!, background: "rgba(0,0,0,0)", operationsFilter: filterFor(only) }).promise,
+            [shown],
           );
         }
         layers.push({ kind: "image", ...info, shown, shownBox: shown ? [x0, y0, x1, y1] : undefined });
@@ -690,6 +723,7 @@ export async function reconstructPdf(
             background: "rgba(0,0,0,0)",
             operationsFilter: filterFor(e.ops),
           }).promise,
+        [c],
       );
       const cropped = cropToContent(c);
       if (cropped) {
@@ -723,6 +757,7 @@ export async function reconstructPdf(
               return true;
             },
           }).promise,
+        [textless],
       );
       bctx.drawImage(textless, 0, 0);
     }

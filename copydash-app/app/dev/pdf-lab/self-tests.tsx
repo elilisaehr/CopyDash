@@ -246,6 +246,34 @@ const TESTS: Test[] = [
     },
   },
   {
+    id: "app-canvas-during-import",
+    audit: "A1",
+    name: "The app keeps drawing its canvases during a real conversion, and the conversion is unchanged",
+    run: async () => {
+      const doc = "0 0 0 rg BT /F1 24 Tf 40 200 Td (Drawn while busy) Tj ET 0.2 0.4 0.9 rg 40 60 300 80 re f";
+      const alone = fingerprint(await rebuild(doc));
+      const other = canvas(200, 10);
+      const octx = other.getContext("2d")!;
+      let ticks = 0;
+      let stop = false;
+      // Draws one 1px column per animation frame while the conversion runs.
+      const loop = () => {
+        if (stop || ticks >= 200) return;
+        octx.fillRect(ticks++, 0, 1, 10);
+        requestAnimationFrame(loop);
+      };
+      requestAnimationFrame(loop);
+      const busy = fingerprint(await rebuild(doc));
+      stop = true;
+      const d = octx.getImageData(0, 5, Math.max(1, ticks), 1).data;
+      let missing = 0;
+      for (let x = 0; x < ticks; x++) if (d[x * 4 + 3] !== 255) missing++;
+      if (!ticks) return "no animation frame ran during the conversion";
+      if (missing) return `${missing} of ${ticks} drawings on the app's canvas were dropped`;
+      return busy === alone ? true : "the conversion gave a different result while the app was drawing";
+    },
+  },
+  {
     id: "simultaneous-imports",
     audit: "A1/A2",
     name: "Two PDFs converted at the same time give the same result as one after the other",
